@@ -1,0 +1,93 @@
+# ============================================================
+# AISecGuard — .gitignore
+# ============================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Virtual environments ---
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Pytest ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# --- SQLite development DB ---
+*.db
+*.sqlite3
+
+# --- Alembic (keep alembic.ini and versions/) ---
+# (Not excluded — migrations are committed)
+
+# --- Upload directory (artifact files are NOT committed) ---
+uploads/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Node.js / Frontend ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+frontend/dist/
+frontend/build/
+frontend/.env
+
+# --- Docker ---
+.docker/
+
+# --- Secrets ---
+.env
+*.pem
+*.key
+*.crt
+secrets/
+
+# --- Reports directory (generated files, optional to exclude) ---
+# Uncomment if you don't want to commit generated reports
+# reports/

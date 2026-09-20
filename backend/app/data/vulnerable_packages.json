@@ -1,0 +1,89 @@
+{
+  "_metadata": {
+    "description": "AISecGuard Local Vulnerability Reference Database",
+    "note": "This is a curated reference list for academic demonstration purposes. It is NOT a live CVE database. For production use, integrate with NVD/OSV APIs.",
+    "version": "0.1.0",
+    "last_updated": "2026-09-20"
+  },
+  "packages": {
+    "tensorflow": [
+      {
+        "cve": "CVE-2022-41897",
+        "affected_versions": "<2.11.0",
+        "severity": "HIGH",
+        "description": "Out-of-bounds write in TensorFlow before 2.11.0 via FractionalMaxPool.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-41897"
+      },
+      {
+        "cve": "CVE-2022-35991",
+        "affected_versions": "<2.10.0",
+        "severity": "HIGH",
+        "description": "TensorFlow Segment Fault via TFLite model parsing.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-35991"
+      }
+    ],
+    "torch": [
+      {
+        "cve": "CVE-2022-45907",
+        "affected_versions": "<1.13.1",
+        "severity": "CRITICAL",
+        "description": "PyTorch torch.load() with pickle allows arbitrary code execution. Use torch.load(weights_only=True).",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-45907"
+      }
+    ],
+    "pillow": [
+      {
+        "cve": "CVE-2023-44271",
+        "affected_versions": "<10.0.1",
+        "severity": "HIGH",
+        "description": "Uncontrolled resource consumption in Pillow via crafted image files.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-44271"
+      }
+    ],
+    "scikit-learn": [
+      {
+        "cve": "CVE-2020-28975",
+        "affected_versions": "<0.24.0",
+        "severity": "MEDIUM",
+        "description": "Denial of service in scikit-learn SVM via crafted input.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-28975"
+      }
+    ],
+    "numpy": [
+      {
+        "cve": "CVE-2021-34141",
+        "affected_versions": "<1.22.0",
+        "severity": "MEDIUM",
+        "description": "String comparison in NumPy uses C strcmp which may cause issues with untrusted input.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-34141"
+      }
+    ],
+    "requests": [
+      {
+        "cve": "CVE-2023-32681",
+        "affected_versions": "<2.31.0",
+        "severity": "MEDIUM",
+        "description": "Proxy-Authorization header leak on redirect to different host.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-32681"
+      }
+    ],
+    "cryptography": [
+      {
+        "cve": "CVE-2023-49083",
+        "affected_versions": "<41.0.6",
+        "severity": "HIGH",
+        "description": "NULL pointer dereference in PKCS12 parsing.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-49083"
+      }
+    ],
+    "urllib3": [
+      {
+        "cve": "CVE-2023-45803",
+        "affected_versions": "<2.0.7",
+        "severity": "MEDIUM",
+        "description": "Request body not stripped after redirect with status code 301/302.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-45803"
+      }
+    ]
+  }
+}

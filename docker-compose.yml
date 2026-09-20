@@ -1,0 +1,59 @@
+# ==============================================================
+# AISecGuard — Docker Compose
+# Development environment: PostgreSQL + FastAPI Backend
+# ==============================================================
+# Usage:
+#   docker-compose up -d db        # Start PostgreSQL only
+#   docker-compose up -d           # Start all services
+#   docker-compose down            # Stop all services
+# ==============================================================
+
+version: "3.9"
+
+services:
+
+  # --- PostgreSQL Database ---
+  db:
+    image: postgres:15-alpine
+    container_name: aisecguard_db
+    environment:
+      POSTGRES_USER: aisecguard
+      POSTGRES_PASSWORD: aisecguard_password
+      POSTGRES_DB: aisecguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aisecguard -d aisecguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- FastAPI Backend ---
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aisecguard_backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://aisecguard:aisecguard_password@db:5432/aisecguard
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - upload_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
+    name: aisecguard_postgres_data
+  upload_data:
+    name: aisecguard_upload_data
