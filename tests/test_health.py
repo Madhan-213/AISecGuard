@@ -1,22 +1,13 @@
 """
-AISecGuard — Basic Health Check Test
-Week 2: Verifies that the FastAPI backend starts and responds correctly.
+AISecGuard — Health Check Tests
+Week 3: Updated to use conftest fixtures.
 """
 
 from fastapi.testclient import TestClient
-import sys
-import os
-
-# Add the backend directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from backend.main import app
-
-client = TestClient(app)
 
 
-def test_health_check():
-    """Test that GET /health returns status ok."""
+def test_health_check(client: TestClient):
+    """GET /health returns status ok with required fields."""
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
@@ -24,10 +15,18 @@ def test_health_check():
     assert data["project"] == "AISecGuard"
     assert "version" in data
     assert "timestamp" in data
-    print("\n✅ Health check test passed.")
-    print(f"   Response: {data}")
 
 
-if __name__ == "__main__":
-    test_health_check()
-    print("\n✅ All Week 2 backend tests passed.")
+def test_docs_accessible(client: TestClient):
+    """GET /docs returns 200 (Swagger UI available)."""
+    response = client.get("/docs")
+    assert response.status_code == 200
+
+
+def test_openapi_accessible(client: TestClient):
+    """GET /openapi.json returns a valid OpenAPI schema."""
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schema = response.json()
+    assert "openapi" in schema
+    assert "paths" in schema

@@ -1,4 +1,4 @@
 """
 AISecGuard — Utils Package
-Week 2: Utility stubs defined. Implementation begins in Week 3.
+Week 3: Hashing, storage, and other shared utilities.
 """
