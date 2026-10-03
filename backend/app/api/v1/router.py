@@ -21,6 +21,13 @@ api_router.include_router(
 )
 
 api_router.include_router(
+    scans.router,
+    prefix="/api/v1/scan",
+    tags=["Scans"],
+    include_in_schema=False,
+)
+
+api_router.include_router(
     findings.router,
     prefix="/api/v1/findings",
     tags=["Findings"],

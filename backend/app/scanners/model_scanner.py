@@ -1,6 +1,6 @@
 """
 AISecGuard — Model Security Scanner (Static Analysis Only)
-Week 3: Inspects AI model files for unsafe serialization and suspicious patterns.
+Week 4: Improved — adds SHA-256, rule_ids, large file warning, string scanning.
 
 =============================================================================
 CRITICAL SAFETY RULES:
@@ -23,6 +23,7 @@ from __future__ import annotations
 import pickletools
 import io
 import struct
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,25 +32,32 @@ from app.models.enums import FindingType, FindingSeverity
 
 # ---------------------------------------------------------------------------
 # Suspicious module/callable references found in pickle opcodes
-# These indicate the pickle file references OS-level or code-execution modules
 # ---------------------------------------------------------------------------
 SUSPICIOUS_REFERENCES = {
-    # Code execution
     "os", "subprocess", "sys", "shutil", "ctypes", "pty",
-    # Eval/exec patterns
     "eval", "exec", "__import__", "compile",
-    # Network
     "socket", "urllib", "requests", "http",
-    # Builtins that can run code
     "builtins.eval", "builtins.exec",
-    # Common exploit patterns
     "Popen", "system", "call", "check_output", "spawn",
 }
+
+# Suspicious byte strings to scan for in binary model files
+_SUSPICIOUS_STRINGS = [
+    b"import os", b"import subprocess", b"import sys",
+    b"exec(", b"eval(", b"__import__(",
+    b"os.system", b"subprocess.Popen", b"socket.connect",
+    b"urllib.request", b"requests.get", b"/bin/sh", b"cmd.exe",
+    b"base64.b64decode",
+]
+
+# Large file threshold: 500 MB
+_LARGE_FILE_THRESHOLD_BYTES = 500 * 1024 * 1024
 
 
 @dataclass
 class ModelFinding:
     """A single finding produced by the model scanner."""
+    rule_id: str
     finding_type: FindingType
     severity: FindingSeverity
     title: str
@@ -63,9 +71,11 @@ class ModelScanResult:
     """Result returned by the model scanner."""
     file_extension: str
     file_size: int
+    sha256: str
     format_identified: str
     findings: list[ModelFinding] = field(default_factory=list)
     suspicious_refs_found: list[str] = field(default_factory=list)
+    suspicious_strings_found: list[str] = field(default_factory=list)
     pickle_opcodes_found: bool = False
     scan_error: str | None = None
 
@@ -80,8 +90,6 @@ def _inspect_pickle_bytes(data: bytes) -> tuple[list[str], list[str]]:
 
     Returns:
         (suspicious_refs, opcode_names)
-          - suspicious_refs: module/callable names that match SUSPICIOUS_REFERENCES
-          - opcode_names: all opcode names encountered
     """
     suspicious: list[str] = []
     opcodes: list[str] = []
@@ -90,7 +98,6 @@ def _inspect_pickle_bytes(data: bytes) -> tuple[list[str], list[str]]:
         stream = io.BytesIO(data)
         for opcode, arg, pos in pickletools.genops(stream):
             opcodes.append(opcode.name)
-            # GLOBAL opcodes carry "module name" as argument
             if opcode.name in ("GLOBAL", "STACK_GLOBAL", "INST"):
                 arg_str = str(arg) if arg is not None else ""
                 for ref in SUSPICIOUS_REFERENCES:
@@ -98,7 +105,6 @@ def _inspect_pickle_bytes(data: bytes) -> tuple[list[str], list[str]]:
                         if arg_str not in suspicious:
                             suspicious.append(arg_str)
     except Exception:
-        # Malformed pickle — still report pickle opcodes found
         pass
 
     return suspicious, opcodes
@@ -108,108 +114,18 @@ def _check_magic_bytes(data: bytes, magic: bytes) -> bool:
     return data[:len(magic)] == magic
 
 
+def _extract_suspicious_strings(data: bytes) -> list[str]:
+    """Static byte scan for suspicious string patterns — no code execution."""
+    return [
+        p.decode("utf-8", errors="replace")
+        for p in _SUSPICIOUS_STRINGS
+        if p in data
+    ]
+
+
 # ---------------------------------------------------------------------------
-# Public API
+# Format-specific scanners
 # ---------------------------------------------------------------------------
-
-def scan_model_file(storage_path: str | Path) -> ModelScanResult:
-    """
-    Perform static analysis on an AI model file.
-
-    This function reads the file bytes and performs byte-level inspection.
-    It does NOT load, execute, or deserialize any content.
-
-    Args:
-        storage_path: Path to the stored artifact file.
-
-    Returns:
-        ModelScanResult with all findings.
-    """
-    storage_path = Path(storage_path)
-    ext = storage_path.suffix.lower()
-    file_size = storage_path.stat().st_size
-
-    try:
-        # Read a limited prefix for magic byte checks (first 64 KiB)
-        # Full file only needed for pickle opcode walk
-        with open(storage_path, "rb") as f:
-            header = f.read(65536)
-            f.seek(0)
-            full_data = f.read()
-    except OSError as e:
-        return ModelScanResult(
-            file_extension=ext,
-            file_size=file_size,
-            format_identified="UNREADABLE",
-            scan_error=str(e),
-        )
-
-    result = ModelScanResult(
-        file_extension=ext,
-        file_size=file_size,
-        format_identified="UNKNOWN",
-    )
-
-    # ------------------------------------------------------------------
-    # Route to format-specific inspector
-    # ------------------------------------------------------------------
-
-    if ext in (".pkl", ".pickle", ".joblib"):
-        _scan_pickle_format(result, full_data, ext)
-
-    elif ext in (".pt", ".pth"):
-        _scan_pytorch_format(result, header)
-
-    elif ext == ".h5":
-        _scan_hdf5_format(result, header)
-
-    elif ext == ".onnx":
-        _scan_onnx_format(result, header)
-
-    elif ext == ".safetensors":
-        result.format_identified = "SAFETENSORS"
-        result.findings.append(ModelFinding(
-            finding_type=FindingType.OTHER,
-            severity=FindingSeverity.INFORMATIONAL,
-            title="SafeTensors format detected",
-            description=(
-                "The artifact uses the SafeTensors serialization format, which is "
-                "designed to be safe and does not support arbitrary code execution "
-                "during deserialization."
-            ),
-            recommendation="SafeTensors is a recommended format. No action required.",
-        ))
-
-    elif ext == ".bin":
-        result.format_identified = "GENERIC_BINARY"
-        result.findings.append(ModelFinding(
-            finding_type=FindingType.UNKNOWN_FORMAT,
-            severity=FindingSeverity.INFORMATIONAL,
-            title="Generic binary format",
-            description=(
-                "The file uses a .bin extension with no recognised format signature. "
-                "This may be a Hugging Face model shard or another binary format."
-            ),
-            recommendation=(
-                "Verify the artifact source and format. Consider converting to a "
-                "well-defined format such as SafeTensors or ONNX."
-            ),
-        ))
-
-    else:
-        result.format_identified = "UNSUPPORTED_EXTENSION"
-        result.findings.append(ModelFinding(
-            finding_type=FindingType.UNKNOWN_FORMAT,
-            severity=FindingSeverity.INFORMATIONAL,
-            title=f"File extension {ext!r} is not a recognised model format",
-            description=(
-                "The submitted file does not have a recognised AI model file extension. "
-                "It may still be a valid model in an unsupported format."
-            ),
-        ))
-
-    return result
-
 
 def _scan_pickle_format(
     result: ModelScanResult, data: bytes, ext: str
@@ -217,8 +133,8 @@ def _scan_pickle_format(
     """Inspect a pickle/joblib file for unsafe serialization patterns."""
     result.format_identified = "PICKLE" if ext in (".pkl", ".pickle") else "JOBLIB"
 
-    # Unsafe serialization finding — always present for pickle/joblib
     result.findings.append(ModelFinding(
+        rule_id="MODEL-001",
         finding_type=FindingType.UNSAFE_SERIALIZATION,
         severity=FindingSeverity.HIGH,
         title="Pickle-based serialization detected",
@@ -235,7 +151,6 @@ def _scan_pickle_format(
         ),
     ))
 
-    # Opcode walk — static only, no deserialization
     suspicious_refs, opcodes = _inspect_pickle_bytes(data)
     result.pickle_opcodes_found = len(opcodes) > 0
     result.suspicious_refs_found = suspicious_refs
@@ -243,6 +158,7 @@ def _scan_pickle_format(
     if suspicious_refs:
         evidence_text = "\n".join(f"  - {ref}" for ref in suspicious_refs)
         result.findings.append(ModelFinding(
+            rule_id="MODEL-002",
             finding_type=FindingType.SUSPICIOUS_REFERENCE,
             severity=FindingSeverity.CRITICAL,
             title="Suspicious module/callable references found in pickle opcodes",
@@ -262,13 +178,12 @@ def _scan_pickle_format(
 
 def _scan_pytorch_format(result: ModelScanResult, header: bytes) -> None:
     """Check PyTorch file magic bytes and note serialization type."""
-    # PyTorch .pt/.pth can be either pickle (legacy) or zip-based (new format)
-    # ZIP magic bytes: PK\x03\x04
     is_zip = header[:4] == b"PK\x03\x04"
 
     if is_zip:
         result.format_identified = "PYTORCH_ZIP"
         result.findings.append(ModelFinding(
+            rule_id="MODEL-003",
             finding_type=FindingType.UNSAFE_SERIALIZATION,
             severity=FindingSeverity.MEDIUM,
             title="PyTorch ZIP archive format detected",
@@ -286,6 +201,7 @@ def _scan_pytorch_format(result: ModelScanResult, header: bytes) -> None:
     else:
         result.format_identified = "PYTORCH_LEGACY"
         result.findings.append(ModelFinding(
+            rule_id="MODEL-003",
             finding_type=FindingType.UNSAFE_SERIALIZATION,
             severity=FindingSeverity.HIGH,
             title="PyTorch legacy pickle format detected",
@@ -302,11 +218,11 @@ def _scan_pytorch_format(result: ModelScanResult, header: bytes) -> None:
 
 def _scan_hdf5_format(result: ModelScanResult, header: bytes) -> None:
     """Check HDF5 magic signature."""
-    # HDF5 signature: \x89HDF\r\n\x1a\n
     HDF5_MAGIC = b"\x89HDF\r\n\x1a\n"
     if _check_magic_bytes(header, HDF5_MAGIC):
         result.format_identified = "HDF5_KERAS"
         result.findings.append(ModelFinding(
+            rule_id="MODEL-004",
             finding_type=FindingType.UNSAFE_SERIALIZATION,
             severity=FindingSeverity.MEDIUM,
             title="HDF5/Keras model format detected",
@@ -323,6 +239,7 @@ def _scan_hdf5_format(result: ModelScanResult, header: bytes) -> None:
     else:
         result.format_identified = "HDF5_UNVERIFIED"
         result.findings.append(ModelFinding(
+            rule_id="MODEL-004",
             finding_type=FindingType.UNKNOWN_FORMAT,
             severity=FindingSeverity.LOW,
             title=".h5 file does not match HDF5 magic signature",
@@ -337,6 +254,7 @@ def _scan_onnx_format(result: ModelScanResult, header: bytes) -> None:
     """Check ONNX protobuf header."""
     result.format_identified = "ONNX"
     result.findings.append(ModelFinding(
+        rule_id="MODEL-010",
         finding_type=FindingType.OTHER,
         severity=FindingSeverity.INFORMATIONAL,
         title="ONNX format detected",
@@ -347,3 +265,140 @@ def _scan_onnx_format(result: ModelScanResult, header: bytes) -> None:
         ),
         recommendation="ONNX is a recommended format. Verify using a compliant ONNX runtime.",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def scan_model_file(storage_path: str | Path) -> ModelScanResult:
+    """
+    Perform static analysis on an AI model file.
+
+    SAFETY: Does NOT load, execute, or deserialize any content.
+
+    Args:
+        storage_path: Path to the stored artifact file.
+
+    Returns:
+        ModelScanResult with all findings.
+    """
+    storage_path = Path(storage_path)
+    ext = storage_path.suffix.lower()
+    file_size = storage_path.stat().st_size
+
+    # Compute SHA-256 (chunked, memory-safe for large files)
+    sha256 = "unreadable"
+    try:
+        h = hashlib.sha256()
+        with open(storage_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        sha256 = h.hexdigest()
+    except OSError:
+        pass
+
+    try:
+        with open(storage_path, "rb") as f:
+            header = f.read(65536)
+            f.seek(0)
+            full_data = f.read()
+    except OSError as e:
+        return ModelScanResult(
+            file_extension=ext, file_size=file_size, sha256=sha256,
+            format_identified="UNREADABLE", scan_error=str(e),
+        )
+
+    result = ModelScanResult(
+        file_extension=ext, file_size=file_size, sha256=sha256,
+        format_identified="UNKNOWN",
+    )
+
+    # Large file warning
+    if file_size > _LARGE_FILE_THRESHOLD_BYTES:
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-005",
+            finding_type=FindingType.LARGE_FILE_WARNING,
+            severity=FindingSeverity.LOW,
+            title="Unusually large model file",
+            description=(
+                f"The model file is {file_size / (1024*1024):.1f} MB, "
+                f"exceeding the {_LARGE_FILE_THRESHOLD_BYTES // (1024*1024)} MB threshold."
+            ),
+            evidence=f"File size: {file_size:,} bytes",
+            recommendation="Verify the file size is expected for this model architecture.",
+        ))
+
+    # Route to format-specific inspector
+    if ext in (".pkl", ".pickle", ".joblib"):
+        _scan_pickle_format(result, full_data, ext)
+    elif ext in (".pt", ".pth"):
+        _scan_pytorch_format(result, header)
+    elif ext == ".h5":
+        _scan_hdf5_format(result, header)
+    elif ext == ".onnx":
+        _scan_onnx_format(result, header)
+    elif ext == ".safetensors":
+        result.format_identified = "SAFETENSORS"
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-006",
+            finding_type=FindingType.OTHER,
+            severity=FindingSeverity.INFORMATIONAL,
+            title="SafeTensors format detected",
+            description=(
+                "SafeTensors serialization is designed to be safe and does not "
+                "support arbitrary code execution during deserialization."
+            ),
+            recommendation="SafeTensors is a recommended format. No action required.",
+        ))
+    elif ext == ".bin":
+        result.format_identified = "GENERIC_BINARY"
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-007",
+            finding_type=FindingType.UNKNOWN_FORMAT,
+            severity=FindingSeverity.INFORMATIONAL,
+            title="Generic binary format",
+            description=(
+                "The file uses a .bin extension with no recognised format signature. "
+                "This may be a Hugging Face model shard or another binary format."
+            ),
+            recommendation=(
+                "Verify the artifact source and format. Consider converting to a "
+                "well-defined format such as SafeTensors or ONNX."
+            ),
+        ))
+    else:
+        result.format_identified = "UNSUPPORTED_EXTENSION"
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-008",
+            finding_type=FindingType.UNKNOWN_FORMAT,
+            severity=FindingSeverity.INFORMATIONAL,
+            title=f"File extension {ext!r} is not a recognised model format",
+            description=(
+                "The submitted file does not have a recognised AI model file extension."
+            ),
+        ))
+
+    # Suspicious string scan for non-pickle formats
+    if ext not in (".pkl", ".pickle", ".joblib"):
+        suspicious_strings = _extract_suspicious_strings(full_data)
+        if suspicious_strings:
+            result.suspicious_strings_found = suspicious_strings
+            result.findings.append(ModelFinding(
+                rule_id="MODEL-009",
+                finding_type=FindingType.SUSPICIOUS_REFERENCE,
+                severity=FindingSeverity.HIGH,
+                title="Suspicious string patterns in binary file",
+                description=(
+                    "Static byte inspection found patterns associated with code execution "
+                    "or network access embedded in the model binary. "
+                    "This is a Suspicious Pattern indicator — does NOT confirm malice."
+                ),
+                evidence="Found:\n" + "\n".join(f"  - {s!r}" for s in suspicious_strings[:10]),
+                recommendation=(
+                    "Investigate the file origin. A legitimate model should not "
+                    "contain OS/subprocess/network string patterns."
+                ),
+            ))
+
+    return result

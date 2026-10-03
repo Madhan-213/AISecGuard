@@ -1,0 +1,8 @@
+[project]
+name = "sample-ai-project"
+version = "0.1.0"
+dependencies = [
+    "requests==2.31.0",
+    "numpy>=1.20.0",
+    "torch"
+]

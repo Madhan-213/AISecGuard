@@ -1,27 +1,25 @@
 """
 AISecGuard — Scan Orchestrator Service
-Week 3: Coordinates the full scan pipeline for an artifact.
+Week 4: Integrates Dataset, Dependency, and Model scanners with Risk Assessment Engine.
 
 Pipeline:
   1. Find artifact by ID
   2. Mark artifact SCANNING
   3. Run provenance/integrity check
-  4. If artifact type is MODEL: run model scanner
+  4. Route to the correct scanner based on artifact type:
+       MODEL      → Model Scanner
+       DATASET    → Dataset Scanner
+       DEPENDENCY → Dependency Scanner
   5. Collect all findings
-  6. Calculate preliminary risk level
+  6. Run Risk Assessment Engine (numeric score + risk level)
   7. Persist findings and scan result
   8. Mark scan COMPLETED
   9. Return the scan record
 
-Risk Logic (Week 3 — simplified):
-  - No findings               → LOW
-  - Informational only        → LOW
-  - Any MEDIUM finding        → MEDIUM
-  - Any HIGH finding          → HIGH
-  - Any CRITICAL finding      → CRITICAL
-  - Integrity violation found → HIGH (minimum)
-
-NOTE: The full Risk Assessment Engine is planned for Week 5.
+Risk Assessment Engine (Week 4):
+  Severity weights: LOW=1, MEDIUM=3, HIGH=6, CRITICAL=10, INFORMATIONAL=0
+  risk_score = sum of weights for all findings
+  risk_level: LOW (<5), MEDIUM (5-14), HIGH (15-29), CRITICAL (>=30)
 """
 
 from __future__ import annotations
@@ -47,49 +45,126 @@ from app.scanners.provenance_scanner import run_provenance_check
 from app.scanners.model_scanner import scan_model_file
 
 
-# Severity ranking for risk level calculation
-_SEVERITY_ORDER = {
-    FindingSeverity.INFORMATIONAL: 0,
-    FindingSeverity.LOW: 1,
-    FindingSeverity.MEDIUM: 2,
-    FindingSeverity.HIGH: 3,
-    FindingSeverity.CRITICAL: 4,
-}
+# ---------------------------------------------------------------------------
+# Risk Assessment Engine
+# ---------------------------------------------------------------------------
+from app.services.risk_engine import calculate_risk, assess_risk, SEVERITY_WEIGHTS
 
 
-def _calculate_risk_level(findings: list[Finding]) -> RiskLevel:
-    """
-    Compute a preliminary risk level from the list of findings.
-    Conservative: escalates with any HIGH/CRITICAL finding.
-    """
-    if not findings:
-        return RiskLevel.LOW
+# ---------------------------------------------------------------------------
+# Dataset Scanner integration
+# ---------------------------------------------------------------------------
 
-    max_severity_rank = 0
-    has_integrity_violation = False
+def _run_dataset_scanner(storage_path: Path) -> list[dict]:
+    """Run dataset scanner and return findings as dicts."""
+    try:
+        from scanners.dataset_scanner import scan_dataset_file
+        result = scan_dataset_file(storage_path)
+        findings: list[dict] = []
+        for f in result.findings:
+            findings.append({
+                "rule_id": f.rule_id,
+                "finding_type": f.finding_type.value,
+                "severity": f.severity.value,
+                "title": f.title,
+                "description": f.description,
+                "evidence": f.evidence,
+                "recommendation": f.recommendation,
+            })
+        if result.scan_error:
+            findings.append({
+                "rule_id": "DATA-000",
+                "finding_type": FindingType.MALFORMED_FILE.value,
+                "severity": FindingSeverity.MEDIUM.value,
+                "title": "Dataset scanner encountered an error",
+                "description": (
+                    "The dataset scanner could not fully analyse the file. "
+                    "It may be corrupted or in an unexpected format."
+                ),
+                "evidence": result.scan_error[:500],
+                "recommendation": "Verify the dataset file is valid and not corrupted.",
+            })
+        return findings
+    except ImportError:
+        return [{
+            "rule_id": "DATA-000",
+            "finding_type": FindingType.OTHER.value,
+            "severity": FindingSeverity.LOW.value,
+            "title": "Dataset scanner not available",
+            "description": "The dataset scanner module could not be loaded.",
+            "evidence": None,
+            "recommendation": "Ensure scanners/dataset_scanner/ is properly installed.",
+        }]
+    except Exception as e:
+        return [{
+            "rule_id": "DATA-000",
+            "finding_type": FindingType.MALFORMED_FILE.value,
+            "severity": FindingSeverity.MEDIUM.value,
+            "title": "Dataset scanner error",
+            "description": f"An unexpected error occurred in the dataset scanner: {str(e)[:200]}",
+            "evidence": str(e)[:500],
+            "recommendation": "Verify the dataset file and report this error.",
+        }]
 
-    for f in findings:
-        rank = _SEVERITY_ORDER.get(FindingSeverity(f.severity), 0)
-        if rank > max_severity_rank:
-            max_severity_rank = rank
-        if f.finding_type == FindingType.INTEGRITY_VIOLATION.value:
-            has_integrity_violation = True
 
-    # Integrity violation always results in at least HIGH
-    if has_integrity_violation and max_severity_rank < _SEVERITY_ORDER[FindingSeverity.HIGH]:
-        max_severity_rank = _SEVERITY_ORDER[FindingSeverity.HIGH]
+# ---------------------------------------------------------------------------
+# Dependency Scanner integration
+# ---------------------------------------------------------------------------
 
-    if max_severity_rank == 0:
-        return RiskLevel.LOW
-    elif max_severity_rank == 1:
-        return RiskLevel.LOW
-    elif max_severity_rank == 2:
-        return RiskLevel.MEDIUM
-    elif max_severity_rank == 3:
-        return RiskLevel.HIGH
-    else:
-        return RiskLevel.CRITICAL
+def _run_dependency_scanner(storage_path: Path) -> list[dict]:
+    """Run dependency scanner and return findings as dicts."""
+    try:
+        from scanners.dependency_scanner import scan_dependency_file
+        result = scan_dependency_file(storage_path)
+        findings: list[dict] = []
+        for f in result.findings:
+            findings.append({
+                "rule_id": f.rule_id,
+                "finding_type": f.finding_type.value,
+                "severity": f.severity.value,
+                "title": f.title,
+                "description": f.description,
+                "evidence": f.evidence,
+                "recommendation": f.recommendation,
+            })
+        if result.scan_error:
+            findings.append({
+                "rule_id": "DEP-000",
+                "finding_type": FindingType.MALFORMED_FILE.value,
+                "severity": FindingSeverity.MEDIUM.value,
+                "title": "Dependency scanner encountered an error",
+                "description": (
+                    "The dependency scanner could not fully analyse the file."
+                ),
+                "evidence": result.scan_error[:500],
+                "recommendation": "Verify the dependency file format.",
+            })
+        return findings
+    except ImportError:
+        return [{
+            "rule_id": "DEP-000",
+            "finding_type": FindingType.OTHER.value,
+            "severity": FindingSeverity.LOW.value,
+            "title": "Dependency scanner not available",
+            "description": "The dependency scanner module could not be loaded.",
+            "evidence": None,
+            "recommendation": "Ensure scanners/dependency_scanner/ is properly installed.",
+        }]
+    except Exception as e:
+        return [{
+            "rule_id": "DEP-000",
+            "finding_type": FindingType.MALFORMED_FILE.value,
+            "severity": FindingSeverity.MEDIUM.value,
+            "title": "Dependency scanner error",
+            "description": f"An unexpected error in the dependency scanner: {str(e)[:200]}",
+            "evidence": str(e)[:500],
+            "recommendation": "Verify the dependency file and report this error.",
+        }]
 
+
+# ---------------------------------------------------------------------------
+# Main scan pipeline
+# ---------------------------------------------------------------------------
 
 def run_scan(artifact_id: str, db: Session) -> Scan:
     """
@@ -118,11 +193,11 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         scan_type="FULL",
         status=ScanStatus.RUNNING.value,
         risk_level=RiskLevel.UNKNOWN.value,
+        risk_score=0,
         started_at=datetime.now(timezone.utc),
     )
     db.add(scan)
 
-    # Mark artifact as scanning
     artifact.status = ArtifactStatus.SCANNING.value
     db.commit()
     db.refresh(scan)
@@ -139,6 +214,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         )
         for pf in prov_result.findings:
             findings_data.append({
+                "rule_id": "PROV-001",
                 "finding_type": pf.finding_type.value,
                 "severity": pf.severity.value,
                 "title": pf.title,
@@ -147,11 +223,12 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
                 "recommendation": pf.recommendation,
             })
 
-        # --- Step 4: Model-specific scan ---
+        # --- Step 4: Type-specific scanner ---
         if artifact.artifact_type == ArtifactType.MODEL.value:
             model_result = scan_model_file(storage_path)
             for mf in model_result.findings:
                 findings_data.append({
+                    "rule_id": getattr(mf, "rule_id", "MODEL-000"),
                     "finding_type": mf.finding_type.value,
                     "severity": mf.severity.value,
                     "title": mf.title,
@@ -159,9 +236,9 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
                     "evidence": mf.evidence,
                     "recommendation": mf.recommendation,
                 })
-
             if model_result.scan_error:
                 findings_data.append({
+                    "rule_id": "MODEL-000",
                     "finding_type": FindingType.OTHER.value,
                     "severity": FindingSeverity.MEDIUM.value,
                     "title": "Scanner encountered an error reading the model file",
@@ -173,12 +250,19 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
                     "recommendation": "Verify the file is complete and not corrupted.",
                 })
 
+        elif artifact.artifact_type == ArtifactType.DATASET.value:
+            findings_data.extend(_run_dataset_scanner(storage_path))
+
+        elif artifact.artifact_type == ArtifactType.DEPENDENCY.value:
+            findings_data.extend(_run_dependency_scanner(storage_path))
+
         # --- Step 5: Persist findings ---
         db_findings: list[Finding] = []
         for fd in findings_data:
             finding = Finding(
                 id=str(uuid.uuid4()),
                 scan_id=scan.id,
+                rule_id=fd.get("rule_id"),
                 finding_type=fd["finding_type"],
                 severity=fd["severity"],
                 title=fd["title"],
@@ -191,12 +275,13 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
 
         db.flush()
 
-        # --- Step 6: Calculate risk level ---
-        risk_level = _calculate_risk_level(db_findings)
+        # --- Step 6: Risk Assessment Engine ---
+        risk_score, risk_level = calculate_risk(findings_data)
 
         # --- Step 7: Complete scan ---
         scan.status = ScanStatus.COMPLETED.value
         scan.risk_level = risk_level.value
+        scan.risk_score = risk_score
         scan.completed_at = datetime.now(timezone.utc)
         artifact.status = ArtifactStatus.SCANNED.value
 
@@ -205,7 +290,6 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         return scan
 
     except Exception as exc:
-        # Mark scan as failed
         scan.status = ScanStatus.FAILED.value
         scan.completed_at = datetime.now(timezone.utc)
         artifact.status = ArtifactStatus.FAILED.value

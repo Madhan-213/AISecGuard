@@ -5,7 +5,7 @@ Week 3: Represents a single security scan of an artifact.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, DateTime, ForeignKey, Enum as SAEnum, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -41,6 +41,9 @@ class Scan(Base):
         SAEnum(RiskLevel, name="risk_level_enum"),
         nullable=False,
         default=RiskLevel.UNKNOWN.value,
+    )
+    risk_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
     )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

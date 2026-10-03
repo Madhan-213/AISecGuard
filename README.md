@@ -85,14 +85,14 @@ PostgreSQL Database + Artifact Storage  [Working]
 | Artifact Upload API | Multipart upload, validation, safe storage, provenance recording | Implemented (Week 3) |
 | Scan Orchestrator | Pipeline: provenance check + model scan + risk calculation | Implemented (Week 3) |
 | Database (SQLAlchemy + Alembic) | ORM models, migrations, session management | Implemented (Week 3) |
-| Dataset Security Scanner | Statistical anomaly and poisoning indicator detection | Designed (Week 4) |
-| Dependency Scanner | CVE matching for AI/ML Python packages | Designed (Week 4) |
-| Risk Assessment Engine | Full severity classification and scoring | Designed (Week 5) |
-| Attack Detection Engine | MITRE ATLAS technique mapping | Designed (Week 4-5) |
+| Dataset Security Scanner | Statistical anomaly and heuristic poisoning indicator detection | Implemented (Week 4) |
+| Dependency Scanner | Static dependency manifest analysis, unpinned packages, typosquatting heuristics | Implemented (Week 4) |
+| Risk Assessment Engine | Central transparent scoring (INFORMATIONAL=0, LOW=1, MED=3, HIGH=6, CRIT=10) | Implemented (Week 4) |
+| Attack Detection Engine | MITRE ATLAS technique mapping | Designed (Week 5) |
 | Mitigation Engine | Quarantine, alerting, remediation recommendations | Designed (Week 5) |
 | Report Generator | JSON and Markdown security reports | Designed (Week 5) |
 | Web Dashboard | React-based security monitoring UI | Designed (Week 6-7) |
-| API Layer | FastAPI REST API | Health check + full v1 endpoints working |
+| API Layer | FastAPI REST API with direct upload-and-scan endpoints | Health check + full v1 endpoints working |
 
 ---
 
@@ -271,8 +271,8 @@ curl http://localhost:8000/health
 | Week 1 | Literature review (10 research papers) | Completed |
 | Week 2 | Requirements, threat model, architecture, database/API design, initial setup | Completed |
 | Week 3 | Database ORM, artifact upload, SHA-256, provenance checker, model scanner, scan pipeline, 38 tests | Implemented |
-| Week 4 | Dataset scanner, dependency scanner, expanded scan orchestration | Planned |
-| Week 5 | Risk assessment engine, attack detection, mitigation engine, report generator | Planned |
+| Week 4 | Dataset scanner, dependency scanner, improved model scanner, central risk engine, 72 tests | Implemented |
+| Week 5 | Attack detection engine, mitigation engine, report generator | Planned |
 | Week 6 | React frontend foundation, dashboard layout | Planned |
 | Week 7 | Frontend: upload UI, scan monitoring, findings view | Planned |
 | Week 8 | Integration testing, end-to-end scan flow | Planned |
@@ -295,8 +295,14 @@ curl http://localhost:8000/health
 | Database Design | DOCS/database-design.md |
 | API Design | DOCS/api-design.md |
 | Technology Stack | DOCS/technology-stack.md |
+| Dataset Security Scanner | DOCS/dataset-scanner.md |
+| Dependency Security Scanner | DOCS/dependency-scanner.md |
+| Model Security Scanner | DOCS/model-scanner.md |
+| Risk Assessment Engine | DOCS/risk-assessment.md |
 | Week 2 Progress Report | DOCS/weekly-reports/week-02.md |
 | Week 3 Progress Report | DOCS/weekly-reports/week-03.md |
+| Week 4 Progress Report | DOCS/weekly-reports/week-04.md |
+| Week 4 Verification Report | WEEK4_VERIFICATION.md |
 
 ---
 

@@ -1,18 +1,39 @@
 """
 AISecGuard — Scan API Endpoints
-Week 3: Create and retrieve scans.
+Week 4: Create and retrieve scans, plus direct upload-and-scan endpoints for
+models, datasets, dependencies, and generic artifacts.
 
-POST /api/v1/scans          — trigger a scan for an artifact
-GET  /api/v1/scans          — list all scans
-GET  /api/v1/scans/{id}     — get scan with findings
+Endpoints:
+  POST /api/v1/scans                  — trigger a scan for an existing artifact
+  POST /api/v1/scans/upload           — upload and scan any supported artifact
+  POST /api/v1/scans/model            — direct upload and scan a model
+  POST /api/v1/scans/dataset          — direct upload and scan a dataset
+  POST /api/v1/scans/dependency       — direct upload and scan a dependency file
+  GET  /api/v1/scans                  — list all scans
+  GET  /api/v1/scans/{scan_id}        — get scan with findings and risk_score
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from pathlib import Path
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Form,
+    status,
+)
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
 from app.db.session import get_db
+from app.core.config import settings
+from app.models.artifact import Artifact
+from app.models.provenance import ProvenanceRecord
 from app.models.scan import Scan
+from app.models.enums import ArtifactStatus, ArtifactType
 from app.schemas.scan import (
     ScanRequest,
     ScanResponse,
@@ -20,8 +41,115 @@ from app.schemas.scan import (
     ScanListResponse,
 )
 from app.services.scan_service import run_scan
+from app.utils.hashing import compute_sha256_file
+from app.utils.storage import build_safe_storage_path, save_upload
 
 router = APIRouter()
+
+
+def _get_extension_map() -> dict[str, ArtifactType]:
+    """Map lowercase extensions to their ArtifactType."""
+    ext_map: dict[str, ArtifactType] = {}
+    for ext in settings.ALLOWED_MODEL_EXTENSIONS:
+        ext_map[ext.lower()] = ArtifactType.MODEL
+    for ext in settings.ALLOWED_DATASET_EXTENSIONS:
+        ext_map[ext.lower()] = ArtifactType.DATASET
+    for ext in settings.ALLOWED_DEPENDENCY_EXTENSIONS:
+        ext_map[ext.lower()] = ArtifactType.DEPENDENCY
+    return ext_map
+
+
+async def _process_upload_and_scan(
+    file: UploadFile,
+    expected_type: ArtifactType | None,
+    source_url: str | None,
+    db: Session,
+) -> Scan:
+    """Validate upload, compute SHA-256, store safely, and execute scan."""
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required.",
+        )
+
+    original_filename = file.filename
+    ext = Path(original_filename).suffix.lower()
+    ext_map = _get_extension_map()
+
+    if ext not in ext_map:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported file extension: {ext!r}. "
+                f"Allowed extensions: {sorted(ext_map.keys())}"
+            ),
+        )
+
+    detected_type = ext_map[ext]
+    if expected_type is not None and detected_type != expected_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"File extension {ext!r} is classified as {detected_type.value}, "
+                f"but endpoint expected {expected_type.value}."
+            ),
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed upload size of {settings.MAX_UPLOAD_SIZE_MB} MB.",
+        )
+
+    # Secure storage
+    safe_filename, storage_path = build_safe_storage_path(original_filename)
+    save_upload(content, storage_path)
+
+    sha256_hash = compute_sha256_file(storage_path)
+
+    artifact = Artifact(
+        id=str(uuid.uuid4()),
+        filename=safe_filename,
+        original_filename=original_filename,
+        artifact_type=detected_type.value,
+        file_size=len(content),
+        file_extension=ext,
+        sha256=sha256_hash,
+        storage_path=storage_path,
+        status=ArtifactStatus.PENDING_SCAN.value,
+    )
+    db.add(artifact)
+
+    provenance = ProvenanceRecord(
+        id=str(uuid.uuid4()),
+        artifact_id=artifact.id,
+        source_url=source_url,
+        sha256_hash=sha256_hash,
+        file_size=len(content),
+        uploader_id=None,
+    )
+    db.add(provenance)
+    db.commit()
+    db.refresh(artifact)
+
+    try:
+        scan = run_scan(artifact_id=artifact.id, db=db)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Scan execution failed: {str(exc)}",
+        )
+
+    db.refresh(scan)
+    return scan
 
 
 # ---------------------------------------------------------------------------
@@ -39,10 +167,8 @@ def create_scan(
     db: Session = Depends(get_db),
 ):
     """
-    Start a security scan for the specified artifact.
-
-    The scan runs synchronously in Week 3 (no background task queue yet).
-    It returns the completed scan with all findings.
+    Start a security scan for the specified artifact by ID.
+    Returns the completed scan with all findings and numeric risk_score.
     """
     try:
         scan = run_scan(artifact_id=body.artifact_id, db=db)
@@ -59,6 +185,70 @@ def create_scan(
 
     db.refresh(scan)
     return scan
+
+
+# ---------------------------------------------------------------------------
+# Direct upload-and-scan endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/model",
+    response_model=ScanDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and scan a model artifact directly",
+)
+async def scan_model_endpoint(
+    file: UploadFile = File(..., description="Model file (.pkl, .pt, .onnx, .safetensors, .h5, etc.)"),
+    source_url: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Upload a model artifact, calculate SHA-256, run model scanner, and return findings."""
+    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db)
+
+
+@router.post(
+    "/dataset",
+    response_model=ScanDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and scan a dataset artifact directly",
+)
+async def scan_dataset_endpoint(
+    file: UploadFile = File(..., description="Dataset file (.csv, .json, .parquet, .jsonl)"),
+    source_url: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Upload a dataset artifact, calculate SHA-256, run dataset scanner, and return findings."""
+    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db)
+
+
+@router.post(
+    "/dependency",
+    response_model=ScanDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and scan a dependency file directly",
+)
+async def scan_dependency_endpoint(
+    file: UploadFile = File(..., description="Dependency file (requirements.txt, pyproject.toml)"),
+    source_url: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Upload a dependency file, calculate SHA-256, run dependency scanner, and return findings."""
+    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db)
+
+
+@router.post(
+    "/upload",
+    response_model=ScanDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and scan any supported AI/ML artifact directly",
+)
+async def scan_upload_endpoint(
+    file: UploadFile = File(..., description="Any supported AI/ML artifact file"),
+    source_url: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Upload any supported artifact, auto-detect its type, scan it, and return findings."""
+    return await _process_upload_and_scan(file, None, source_url, db)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +286,7 @@ def get_scan(
     scan_id: str,
     db: Session = Depends(get_db),
 ):
-    """Retrieve a scan by ID including all associated findings."""
+    """Retrieve a scan by ID including all associated findings and risk_score."""
     scan = db.get(Scan, scan_id)
     if scan is None:
         raise HTTPException(

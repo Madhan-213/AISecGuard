@@ -20,6 +20,7 @@ class FindingResponse(BaseModel):
 
     id: str
     scan_id: str
+    rule_id: Optional[str] = None
     finding_type: FindingType
     severity: FindingSeverity
     title: str
@@ -38,6 +39,7 @@ class ScanResponse(BaseModel):
     scan_type: str
     status: ScanStatus
     risk_level: RiskLevel
+    risk_score: int = 0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
@@ -51,6 +53,7 @@ class ScanDetailResponse(BaseModel):
     scan_type: str
     status: ScanStatus
     risk_level: RiskLevel
+    risk_score: int = 0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     findings: list[FindingResponse] = []
