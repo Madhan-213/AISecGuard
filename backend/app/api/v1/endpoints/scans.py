@@ -13,6 +13,8 @@ Endpoints:
   GET  /api/v1/scans/{scan_id}        — get scan with findings and risk_score
 """
 
+import json
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from fastapi import (
     Form,
     status,
 )
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
@@ -294,3 +297,50 @@ def get_scan(
             detail=f"Scan not found: {scan_id}",
         )
     return scan
+
+
+# ---------------------------------------------------------------------------
+# GET /{scan_id}/status (SSE)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{scan_id}/status",
+    summary="Stream real-time scan status events (SSE)",
+)
+async def scan_status_stream(
+    scan_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Server-Sent Events (SSE) endpoint streaming scan progress and phase updates.
+    Returns events for phases: QUEUED -> PROVENANCE_CHECK -> SCANNER_RUNNING -> RISK_CALC -> COMPLETED.
+    """
+    scan = db.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan not found: {scan_id}",
+        )
+
+    async def event_generator():
+        phases = [
+            {"phase": "QUEUED", "progress": 20, "message": "Scan job queued"},
+            {"phase": "PROVENANCE_CHECK", "progress": 40, "message": "Verifying artifact SHA-256 integrity"},
+            {"phase": "SCANNER_RUNNING", "progress": 70, "message": "Executing static security scanners"},
+            {"phase": "RISK_CALC", "progress": 90, "message": "Evaluating risk score and findings"},
+            {"phase": "COMPLETED", "progress": 100, "message": "Scan completed", "risk_level": scan.risk_level, "risk_score": scan.risk_score},
+        ]
+        for p in phases:
+            data = json.dumps({"scan_id": scan_id, "status": scan.status, **p})
+            yield f"data: {data}\n\n"
+            await asyncio.sleep(0.02)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

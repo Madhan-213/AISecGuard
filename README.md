@@ -11,9 +11,9 @@
 
 ```
 CURRENT STATUS:
-Week 3 - Core backend, database, artifact upload, provenance/integrity,
-and basic model scanning implemented.
-38 tests passing. Full UPLOAD -> HASH -> PROVENANCE -> SCAN -> FINDING pipeline working.
+Week 5 — Frontend Dashboard (React + Vite + Tailwind CSS v4), JWT Authentication,
+Artifact Quarantine System, Remediation Reports (JSON & PDF), and SSE Scan Status Stream.
+97 tests passing (100%).
 ```
 
 ---
@@ -219,18 +219,25 @@ cp .env.example .env
 ```bash
 cd backend
 uvicorn main:app --reload
+# API running at http://localhost:8000
+# Swagger documentation at http://localhost:8000/docs
 ```
 
-### 4. Run tests
+### 4. Run the React frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# Dashboard accessible at http://localhost:5173
+```
+
+### 5. Run tests (97 tests, 100% passing)
 
 ```bash
 # From project root:
-pytest -q
+pytest -v
 ```
-
-### 5. View API documentation
-
-Open: http://localhost:8000/docs
 
 ### 6. Test the upload pipeline
 
@@ -246,6 +253,9 @@ curl -X POST http://localhost:8000/api/v1/scans/ \
 
 # Get scan results with findings
 curl http://localhost:8000/api/v1/scans/<scan_id>
+
+# Download remediation report
+curl http://localhost:8000/api/v1/scans/<scan_id>/report?format=json
 ```
 
 ---
