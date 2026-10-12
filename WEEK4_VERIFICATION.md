@@ -66,6 +66,3 @@ tests\test_scans.py ..........                                           [100%]
 
 ---
 
-## 4. Academic Disclaimer
-
-AISecGuard is an academic security prototype. Scanner findings are heuristic indicators produced through static analysis. A finding flags a potential security risk and does not guarantee that an artifact is malicious or actively exploitable.
