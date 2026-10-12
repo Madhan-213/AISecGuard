@@ -80,19 +80,20 @@ PostgreSQL Database + Artifact Storage  [Working]
 
 | Module | Description | Status |
 |---|---|---|
-| Model Security Scanner | Static pickle opcode inspection, format detection, suspicious reference detection | Implemented (Week 3) |
+| Model Security Scanner | Static pickle opcode inspection, format detection, SafeTensors/ONNX validation | Implemented & Hardened (Week 3-5) |
 | Provenance & Integrity Checker | SHA-256 baseline recording, hash mismatch detection | Implemented (Week 3) |
 | Artifact Upload API | Multipart upload, validation, safe storage, provenance recording | Implemented (Week 3) |
 | Scan Orchestrator | Pipeline: provenance check + model scan + risk calculation | Implemented (Week 3) |
-| Database (SQLAlchemy + Alembic) | ORM models, migrations, session management | Implemented (Week 3) |
+| Database (SQLAlchemy + Alembic) | ORM models, migrations (`users`, `quarantine_events`, etc.) | Implemented (Week 3-5) |
 | Dataset Security Scanner | Statistical anomaly and heuristic poisoning indicator detection | Implemented (Week 4) |
 | Dependency Scanner | Static dependency manifest analysis, unpinned packages, typosquatting heuristics | Implemented (Week 4) |
-| Risk Assessment Engine | Central transparent scoring (INFORMATIONAL=0, LOW=1, MED=3, HIGH=6, CRIT=10) | Implemented (Week 4) |
-| Attack Detection Engine | MITRE ATLAS technique mapping | Designed (Week 5) |
-| Mitigation Engine | Quarantine, alerting, remediation recommendations | Designed (Week 5) |
-| Report Generator | JSON and Markdown security reports | Designed (Week 5) |
-| Web Dashboard | React-based security monitoring UI | Designed (Week 6-7) |
-| API Layer | FastAPI REST API with direct upload-and-scan endpoints | Health check + full v1 endpoints working |
+| Risk Assessment Engine | Central transparent scoring (INFORMATIONAL=0, LOW=1, MED=3, HIGH=6, CRIT=10) | Implemented (Week 4-5) |
+| JWT Authentication | User registration, login, refresh token, bcrypt hashing, HS256 tokens | Implemented (Week 5) |
+| Mitigation / Quarantine Engine | Physical file isolation, release workflow, immutable audit log | Implemented (Week 5) |
+| Report Generator | JSON structured export and PDF remediation reports (ReportLab) | Implemented (Week 5) |
+| Web Dashboard & Homepage | React 19 + Vite 6 + Tailwind CSS v4 redesigned UI, scan details & auth | Implemented (Week 5) |
+| Real-time Telemetry | Server-Sent Events (SSE) `/scans/{id}/status` live scan stream | Implemented (Week 5) |
+| API Layer | FastAPI REST API with authenticated endpoints and OpenAPI docs | Fully operational |
 
 ---
 
@@ -101,12 +102,13 @@ PostgreSQL Database + Artifact Storage  [Working]
 | Layer | Technology | Version |
 |---|---|---|
 | Backend | Python + FastAPI + Uvicorn | 3.12 / 0.137 |
-| Frontend | React + Vite + Tailwind CSS | Designed (Week 6+) |
-| Database | PostgreSQL (prod) / SQLite (dev) | 15 / built-in |
-| ORM | SQLAlchemy + Alembic | 2.1.1 / 1.20.0 |
-| Auth | python-jose + passlib | Designed (Week 4+) |
+| Frontend | React 19 + Vite 6 + Tailwind CSS v4 | Operational |
+| Database | SQLite (dev) / PostgreSQL (prod) | Built-in / 15 |
+| ORM | SQLAlchemy + Alembic | 2.0+ / 1.13+ |
+| Auth | PyJWT + bcrypt / passlib | Operational (HS256) |
+| Report Generation | ReportLab (PDF) + JSON Engine | Operational |
 | Analysis | pandas, numpy, scipy, packaging | Latest |
-| Infrastructure | Docker + Docker Compose | - |
+| Infrastructure | Docker + Docker Compose | Operational |
 | Version Control | Git + GitHub | - |
 
 ---

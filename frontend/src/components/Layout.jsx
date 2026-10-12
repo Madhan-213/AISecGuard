@@ -3,7 +3,7 @@
  * Clean alignments, Lucide icons, live status indicator, and responsive structure.
  */
 
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, 
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/upload', label: 'Upload & Scan', icon: UploadCloud },
   { path: '/scans', label: 'Scan History', icon: History },
   { path: '/quarantine', label: 'Quarantine', icon: ShieldAlert },
@@ -27,7 +27,6 @@ const navItems = [
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const handleLogout = () => {
     logout();
@@ -86,7 +85,7 @@ export default function Layout({ children }) {
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  end={item.path === '/'}
+                  end={item.path === '/dashboard'}
                   style={({ isActive }) => ({
                     display: 'flex',
                     alignItems: 'center',
@@ -117,6 +116,29 @@ export default function Layout({ children }) {
             Quick Links
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <NavLink
+              to="/"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0.65rem 0.875rem',
+                borderRadius: 8,
+                fontSize: '0.825rem',
+                color: '#94a3b8',
+                textDecoration: 'none',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(51, 65, 85, 0.3)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Shield size={16} style={{ color: '#64748b' }} />
+                <span>Public Homepage</span>
+              </span>
+              <ExternalLink size={14} style={{ color: '#64748b' }} />
+            </NavLink>
+
             <a
               href="http://localhost:8000/docs"
               target="_blank"

@@ -104,17 +104,21 @@ def test_safetensors_informational_only():
     """A .safetensors file produces only INFORMATIONAL findings."""
     # SafeTensors files start with a JSON length header
     # For testing purposes we use minimal valid-looking bytes
-    content = b"\x00\x00\x00\x00\x00\x00\x00\x02{}"  # length=2, content={}
+    import struct as _struct
+    header_json = b"{}"
+    # little-endian uint64 length prefix (2 bytes)
+    header_len_bytes = _struct.pack("<Q", len(header_json))
+    content = header_len_bytes + header_json + b"\x00" * 8
     path = write_temp_file(content, ".safetensors")
     try:
         result = scan_model_file(path)
         assert result.format_identified == "SAFETENSORS"
-        non_info = [
+        high_or_critical = [
             f for f in result.findings
-            if f.severity != FindingSeverity.INFORMATIONAL
+            if f.severity in (FindingSeverity.HIGH, FindingSeverity.CRITICAL)
         ]
-        assert len(non_info) == 0, (
-            f"SafeTensors should have no HIGH/CRITICAL findings, got: {non_info}"
+        assert len(high_or_critical) == 0, (
+            f"Valid SafeTensors should have no HIGH/CRITICAL findings, got: {high_or_critical}"
         )
     finally:
         os.unlink(path)

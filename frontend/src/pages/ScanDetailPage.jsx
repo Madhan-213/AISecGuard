@@ -252,7 +252,7 @@ export default function ScanDetailPage() {
       {/* Top Breadcrumb & Actions Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.825rem', color: '#64748b' }}>
-          <span style={{ cursor: 'pointer', color: '#38bdf8' }} onClick={() => navigate('/')}>Dashboard</span>
+          <span style={{ cursor: 'pointer', color: '#38bdf8' }} onClick={() => navigate('/dashboard')}>Dashboard</span>
           <span>/</span>
           <span style={{ cursor: 'pointer', color: '#38bdf8' }} onClick={() => navigate('/scans')}>Scans</span>
           <span>/</span>
