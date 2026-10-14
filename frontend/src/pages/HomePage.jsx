@@ -34,8 +34,6 @@ import {
   Hash,
   Menu,
   X,
-  ExternalLink,
-  Fingerprint,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
