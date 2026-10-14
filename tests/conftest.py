@@ -88,6 +88,10 @@ def client(db: Session):
 
     # Import the app AFTER patching the engine
     from main import app as fastapi_app
+    from app.core.config import settings
+
+    orig_no_login = getattr(settings, "NO_LOGIN_REQUIRED", True)
+    settings.NO_LOGIN_REQUIRED = False
 
     fastapi_app.dependency_overrides[get_db] = override_get_db
 
@@ -95,6 +99,7 @@ def client(db: Session):
         yield c
 
     fastapi_app.dependency_overrides.clear()
+    settings.NO_LOGIN_REQUIRED = orig_no_login
     db_session_module.engine = original_engine
 
 

@@ -10,31 +10,31 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
-import { 
-  Activity, 
-  AlertOctagon, 
-  ShieldAlert, 
-  Gauge, 
-  UploadCloud, 
-  ArrowUpRight, 
-  FileText, 
+import {
+  Activity,
+  AlertOctagon,
+  ShieldAlert,
+  Gauge,
+  UploadCloud,
+  ArrowUpRight,
+  FileText,
   ShieldCheck,
   CheckCircle2
 } from 'lucide-react';
 
 const RISK_COLORS = {
   CRITICAL: '#dc2626',
-  HIGH:     '#ea580c',
-  MEDIUM:   '#ca8a04',
-  LOW:      '#10b981',
-  UNKNOWN:  '#64748b',
+  HIGH: '#ea580c',
+  MEDIUM: '#ca8a04',
+  LOW: '#10b981',
+  UNKNOWN: '#64748b',
 };
 
 const SEV_COLORS = {
-  CRITICAL:      '#dc2626',
-  HIGH:          '#ea580c',
-  MEDIUM:        '#ca8a04',
-  LOW:           '#10b981',
+  CRITICAL: '#dc2626',
+  HIGH: '#ea580c',
+  MEDIUM: '#ca8a04',
+  LOW: '#10b981',
   INFORMATIONAL: '#64748b',
 };
 
@@ -82,24 +82,35 @@ function StatCard({ title, value, sub, color, icon: Icon, glowColor }) {
   );
 }
 
+import { deviceCache } from '../utils/deviceCache';
+
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const [scans, setScans] = useState([]);
-  const [findings, setFindings] = useState([]);
-  const [artifacts, setArtifacts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize immediately from local device cache memory
+  const [scans, setScans] = useState(() => deviceCache.getScans());
+  const [findings, setFindings] = useState(() => deviceCache.getFindings());
+  const [artifacts, setArtifacts] = useState(() => deviceCache.getArtifacts());
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Sync with backend API in background if online
     Promise.all([
-      scansApi.list({ limit: 50 }),
-      findingsApi.list({ limit: 200 }),
-      artifactsApi.list({ limit: 100 }),
+      scansApi.list({ limit: 50 }).catch(() => null),
+      findingsApi.list({ limit: 200 }).catch(() => null),
+      artifactsApi.list({ limit: 100 }).catch(() => null),
     ]).then(([s, f, a]) => {
-      setScans(s.data.scans || []);
-      setFindings(f.data.findings || []);
-      setArtifacts(a.data.artifacts || []);
-    }).catch(console.error)
-      .finally(() => setLoading(false));
+      if (s?.data?.scans && s.data.scans.length > 0) {
+        s.data.scans.forEach(item => deviceCache.saveScan(item));
+        setScans(deviceCache.getScans());
+      }
+      if (f?.data?.findings && f.data.findings.length > 0) {
+        setFindings(deviceCache.getFindings());
+      }
+      if (a?.data?.artifacts && a.data.artifacts.length > 0) {
+        a.data.artifacts.forEach(item => deviceCache.saveArtifact(item));
+        setArtifacts(deviceCache.getArtifacts());
+      }
+    });
   }, []);
 
   // Derived stats

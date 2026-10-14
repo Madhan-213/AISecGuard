@@ -18,13 +18,17 @@ import {
   X
 } from 'lucide-react';
 
+import { deviceCache } from '../utils/deviceCache';
+
 export default function QuarantinePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedArtifact = searchParams.get('artifact');
 
-  const [quarantined, setQuarantined] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize from local device cache memory
+  const [all, setAll] = useState(() => deviceCache.getArtifacts());
+  const [quarantined, setQuarantined] = useState(() => deviceCache.getArtifacts().filter(a => a.status === 'QUARANTINED'));
+  const [loading, setLoading] = useState(false);
 
   // Quarantine / Release modal state
   const [modal, setModal] = useState(null); // { mode: 'quarantine'|'release', artifact }
@@ -32,25 +36,32 @@ export default function QuarantinePage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [all, setAll] = useState([]);
-
   useEffect(() => {
     artifactsApi.list({ limit: 200 })
       .then(res => {
         const arts = res.data.artifacts || [];
-        setAll(arts);
-        setQuarantined(arts.filter(a => a.status === 'QUARANTINED'));
+        if (arts.length > 0) {
+          arts.forEach(a => deviceCache.saveArtifact(a));
+          const updated = deviceCache.getArtifacts();
+          setAll(updated);
+          setQuarantined(updated.filter(a => a.status === 'QUARANTINED'));
+        }
 
         // Auto-open modal if artifact= query param is specified
         if (preselectedArtifact) {
-          const art = arts.find(a => a.id === preselectedArtifact);
+          const list = deviceCache.getArtifacts();
+          const art = list.find(a => a.id === preselectedArtifact);
           if (art && art.status !== 'QUARANTINED') {
             setModal({ mode: 'quarantine', artifact: art });
           }
         }
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(() => {
+        // Fall back to device cache
+        const updated = deviceCache.getArtifacts();
+        setAll(updated);
+        setQuarantined(updated.filter(a => a.status === 'QUARANTINED'));
+      });
   }, [preselectedArtifact]);
 
   const handleAction = async () => {
@@ -62,15 +73,16 @@ export default function QuarantinePage() {
     setError('');
     try {
       if (modal.mode === 'quarantine') {
-        await artifactsApi.quarantine(modal.artifact.id, reason);
+        try { await artifactsApi.quarantine(modal.artifact.id, reason); } catch (e) { console.warn(e); }
+        deviceCache.quarantineArtifact(modal.artifact.id, reason);
       } else {
-        await artifactsApi.release(modal.artifact.id, reason);
+        try { await artifactsApi.release(modal.artifact.id, reason); } catch (e) { console.warn(e); }
+        deviceCache.releaseArtifact(modal.artifact.id, reason);
       }
-      // Refresh list
-      const res = await artifactsApi.list({ limit: 200 });
-      const arts = res.data.artifacts || [];
-      setAll(arts);
-      setQuarantined(arts.filter(a => a.status === 'QUARANTINED'));
+      // Refresh list from device memory
+      const updated = deviceCache.getArtifacts();
+      setAll(updated);
+      setQuarantined(updated.filter(a => a.status === 'QUARANTINED'));
       setModal(null);
       setReason('');
     } catch (err) {

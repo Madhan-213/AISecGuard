@@ -11,10 +11,12 @@
 ## Current Status
 
 ```
-STATUS: Week 5 Operational — Production Ready
-Components: React 19 + Vite 6 + Tailwind CSS v4 Dashboard, JWT Authentication,
-            Artifact Quarantine Engine, Remediation Reports (JSON & PDF), and SSE Scan Status Stream.
-Test Coverage: 97 Backend PyTest tests passing (100%) + 34 Frontend SSR verification checks passing (100%).
+STATUS: Standalone Mode Active (Zero Database Required, No Login Needed)
+Architecture: React 19 + Vite 6 + Tailwind CSS v4 Frontend & FastAPI Backend.
+Persistence: Local Device Cache Memory (Client-side localStorage + in-memory execution).
+Security Engine: Static bytecode disassembly, statistical dataset anomaly scoring, 
+                 manifest auditing, and automated artifact quarantine.
+Test Suite: 97 Backend PyTest tests passing (100%) + 34 Frontend SSR verification checks passing (100%).
 ```
 
 ---
@@ -267,17 +269,11 @@ mkdir -p uploads
 chmod 755 uploads
 ```
 
-By default, `.env` uses SQLite (`sqlite:///./aisecguard_dev.db`), which requires no external database setup.
+By default, the backend operates **completely in memory** (`sqlite:///:memory:`). No external database server or disk file setup is required. All scan evaluations and findings are persisted directly in **client device cache memory (`localStorage`)**.
 
-#### Step 3: Run Database Migrations (Optional for Dev)
+#### Step 3: Zero Database & No Login Setup
 
-FastAPI initializes SQLite tables automatically on startup. For explicit migration management:
-
-```bash
-cd backend
-alembic upgrade head
-cd ..
-```
+No database initialization or migrations are necessary. The application runs immediately out of the box with zero credentials or login required. All routes (`/dashboard`, `/upload`, `/scans`, `/quarantine`) are completely unlocked.
 
 #### Step 4: Run the Backend API Server
 

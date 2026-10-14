@@ -172,24 +172,44 @@ function FindingAccordionItem({ finding }) {
   );
 }
 
+import { deviceCache } from '../utils/deviceCache';
+
 export default function ScanDetailPage() {
   const { scanId } = useParams();
   const navigate = useNavigate();
-  const [scan, setScan] = useState(null);
-  const [artifact, setArtifact] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Check local device cache memory first
+  const cachedScan = deviceCache.getScan(scanId);
+  const cachedArtifact = cachedScan ? (cachedScan.artifact || deviceCache.getArtifact(cachedScan.artifact_id)) : null;
+
+  const [scan, setScan] = useState(cachedScan);
+  const [artifact, setArtifact] = useState(cachedArtifact);
+  const [loading, setLoading] = useState(!cachedScan);
   const [error, setError] = useState('');
   const [exportingFormat, setExportingFormat] = useState(null);
   const [copiedHash, setCopiedHash] = useState(false);
 
   useEffect(() => {
+    // If not in cache or updating from backend
     scansApi.get(scanId)
       .then(res => {
         setScan(res.data);
+        deviceCache.saveScan(res.data);
         return artifactsApi.get(res.data.artifact_id);
       })
-      .then(res => setArtifact(res.data))
-      .catch(() => setError('Failed to retrieve scan report telemetry.'))
+      .then(res => {
+        setArtifact(res.data);
+        deviceCache.saveArtifact(res.data);
+      })
+      .catch(() => {
+        // If backend fails, check if we already have it in device cache
+        const local = deviceCache.getScan(scanId);
+        if (local) {
+          setScan(local);
+          setArtifact(local.artifact || deviceCache.getArtifact(local.artifact_id));
+        } else {
+          setError('Scan details not found in device cache or server.');
+        }
+      })
       .finally(() => setLoading(false));
   }, [scanId]);
 
@@ -214,7 +234,25 @@ export default function ScanDetailPage() {
       a.download = `aisecguard_report_${scanId.slice(0, 8)}.${format}`;
       a.click();
     } catch {
-      alert(`Exporting ${format.toUpperCase()} report failed.`);
+      // Fallback export from local device cache memory
+      if (format === 'json' && scan) {
+        const jsonBlob = new Blob([JSON.stringify({
+          scan_id: scan.id,
+          scan_type: scan.scan_type,
+          risk_score: scan.risk_score,
+          risk_level: scan.risk_level,
+          artifact: artifact || scan.artifact,
+          findings: scan.findings || [],
+          exported_from: 'Local Device Cache Memory',
+          exported_at: new Date().toISOString(),
+        }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(jsonBlob);
+        a.download = `aisecguard_report_${scanId.slice(0, 8)}.json`;
+        a.click();
+      } else {
+        alert(`Exporting ${format.toUpperCase()} report requires active backend with ReportLab.`);
+      }
     } finally {
       setExportingFormat(null);
     }

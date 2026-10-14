@@ -16,6 +16,7 @@ import {
   Terminal,
   ExternalLink
 } from 'lucide-react';
+import { deviceCache } from '../utils/deviceCache';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -166,58 +167,64 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        {/* User Identity Section */}
+        {/* User / Local Cache Profile Footer */}
         <div style={{
           padding: '1.25rem 1rem',
           borderTop: '1px solid var(--color-border)',
           background: 'rgba(10, 15, 30, 0.6)',
         }}>
-          {user ? (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                <div style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #1e293b, #334155)',
-                  border: '1px solid #475569',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.8rem',
-                  color: '#93c5fd',
-                }}>
-                  {(user.full_name || user.email || 'U')[0].toUpperCase()}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d9488, #2563eb)',
+                border: '1px solid #14b8a6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                color: '#ffffff',
+              }}>
+                {(user?.full_name || 'A')[0].toUpperCase()}
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {user?.full_name || 'Security Analyst'}
                 </div>
-                <div style={{ overflow: 'hidden' }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {user.full_name || 'Security Analyst'}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {user.email}
-                  </div>
+                <div style={{ fontSize: '0.72rem', color: '#2dd4bf', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#2dd4bf' }} />
+                  <span>Local Device Cache</span>
                 </div>
               </div>
+            </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
               <button
                 className="btn btn-ghost"
-                style={{ width: '100%', fontSize: '0.8rem', padding: '0.45rem', gap: '0.5rem' }}
-                onClick={handleLogout}
+                style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', justifySelf: 'stretch' }}
+                onClick={() => deviceCache.exportCacheAsJson()}
+                title="Download JSON copy of device cache memory"
               >
-                <LogOut size={15} />
-                <span>Sign Out</span>
+                Backup
+              </button>
+              <button
+                className="btn btn-ghost"
+                style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', color: '#f87171', justifySelf: 'stretch' }}
+                onClick={() => {
+                  if (window.confirm('Reset local cache back to clean state?')) {
+                    deviceCache.resetToBaseline();
+                    window.location.reload();
+                  }
+                }}
+                title="Reset cache memory"
+              >
+                Reset
               </button>
             </div>
-          ) : (
-            <button
-              className="btn btn-primary"
-              style={{ width: '100%' }}
-              onClick={() => navigate('/login')}
-            >
-              Sign In
-            </button>
-          )}
+          </div>
         </div>
       </aside>
 
@@ -239,7 +246,7 @@ export default function Layout({ children }) {
             <span style={{ color: '#64748b' }}>Platform:</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
               <CheckCircle2 size={15} style={{ color: '#10b981' }} />
-              Active Protection Engine
+              Local Cache Mode (Zero DB) · Active Protection
             </span>
           </div>
 

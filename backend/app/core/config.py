@@ -27,15 +27,17 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./aisecguard_dev.db"
-    # For PostgreSQL (set in .env):
+    # Database — in-memory by default (Zero disk database required)
+    DATABASE_URL: str = "sqlite:///:memory:"
+    # For persistent SQLite or PostgreSQL:
+    # DATABASE_URL: str = "sqlite:///./aisecguard_dev.db"
     # DATABASE_URL=postgresql+psycopg2://aisecguard:password@localhost:5432/aisecguard
 
-    # Security
+    # Security & Standalone Mode
     SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    NO_LOGIN_REQUIRED: bool = True  # Standalone mode: bypass login requirement
 
     # File upload settings
     UPLOAD_DIR: str = "./uploads"

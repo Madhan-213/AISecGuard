@@ -80,7 +80,8 @@ if [ ! -f ".env" ]; then
         cat <<EOF > .env
 PROJECT_NAME=AISecGuard
 VERSION=0.1.0
-DATABASE_URL=sqlite:///./aisecguard_dev.db
+DATABASE_URL=sqlite:///:memory:
+NO_LOGIN_REQUIRED=true
 SECRET_KEY=aisecguard_linux_dev_secret_key_$(date +%s)
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440

@@ -16,6 +16,8 @@ import {
   Clock
 } from 'lucide-react';
 
+import { deviceCache } from '../utils/deviceCache';
+
 const RISK_COLORS = {
   CRITICAL: '#f87171',
   HIGH:     '#fb923c',
@@ -26,16 +28,24 @@ const RISK_COLORS = {
 
 export default function ScansPage() {
   const navigate = useNavigate();
-  const [scans, setScans] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize directly from local device cache memory
+  const [scans, setScans] = useState(() => deviceCache.getScans());
+  const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     scansApi.list({ limit: 100 })
-      .then(res => setScans(res.data.scans || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .then(res => {
+        if (res?.data?.scans && res.data.scans.length > 0) {
+          res.data.scans.forEach(s => deviceCache.saveScan(s));
+          setScans(deviceCache.getScans());
+        }
+      })
+      .catch(() => {
+        // Fall back to device cache
+        setScans(deviceCache.getScans());
+      });
   }, []);
 
   const filtered = scans.filter(s => {
@@ -56,14 +66,27 @@ export default function ScansPage() {
             Scan Inventory & History
           </h1>
           <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            {scans.length} total security evaluations recorded in audit repository.
+            {scans.length} total security evaluations stored in local device cache memory (Zero DB).
           </p>
         </div>
 
-        <button className="btn btn-primary" onClick={() => navigate('/upload')}>
-          <UploadCloud size={16} />
-          <span>Upload & Scan</span>
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem', padding: '0.45rem 0.85rem' }}
+            onClick={() => deviceCache.exportCacheAsJson()}
+            title="Download JSON backup of all scans stored in device memory"
+          >
+            Export Cache Backup
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate('/upload')}
+          >
+            <UploadCloud size={16} />
+            <span>Upload & Scan</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Controls Bar */}
