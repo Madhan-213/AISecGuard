@@ -1,865 +1,634 @@
 /**
- * AISecGuard — Redesigned Homepage (Week 5)
+ * AISecGuard — Homepage
  *
- * Design Direction: Professional Enterprise Security
- * - Deep navy/indigo palette with teal/emerald accents
- * - Clean typography hierarchy (Inter font)
- * - Subtle micro-animations on scroll
- * - Real product capability descriptions only
- * - Responsive layout with mobile-first approach
- * - Reduced cognitive load vs. prior neon/terminal design
+ * Light and dark themes (system default, remembered toggle), motion-driven
+ * walkthroughs of the real scan pipeline, and content that mirrors the backend
+ * (formats, rule IDs, risk weights). Respects prefers-reduced-motion.
  *
- * User Flow: Homepage → Start Scanning → Login → Dashboard
- * Route: / (public) → /login (public) → /dashboard (protected)
+ * User flow: Homepage → Start Scanning → Login (or Dashboard if signed in) → Upload → Scan → Report
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { MotionConfig, animate, motion, useInView, useReducedMotion } from 'motion/react';
 import {
-  Shield,
-  ShieldCheck,
-  Cpu,
-  Database,
-  Package,
-  ArrowRight,
-  CheckCircle2,
-  AlertTriangle,
-  ChevronDown,
-  Lock,
-  FileSearch,
-  Activity,
-  Layers,
-  Hash,
-  Menu,
-  X,
+  Activity, AlertTriangle, ArrowRight, Ban, Bug, ChevronDown, Database, ExternalLink, EyeOff,
+  FileJson, FileSearch, FileText, GitBranch, Hash, Lock, Package, Server, Shield, ShieldCheck,
+  Skull,
 } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../hooks/useTheme';
+import HomeNav from '../components/home/HomeNav';
+import HeroScanConsole from '../components/home/HeroScanConsole';
+import PipelineFlow from '../components/home/PipelineFlow';
+import RiskCalculator from '../components/home/RiskCalculator';
+import Faq from '../components/home/Faq';
+import { Reveal, Section, SectionHeader, SeverityBadge } from '../components/home/ui';
+import { TONES } from '../components/home/tokens';
+import { FORMAT_COUNT, MAX_UPLOAD_MB, RULE_COUNT, SCANNERS } from '../components/home/homeData';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 // ---------------------------------------------------------------------------
-// Sub-components
+// Small pieces
 // ---------------------------------------------------------------------------
 
-/** Animated counter hook — counts up from 0 to target when element is visible */
-function useCounter(target, duration = 1500) {
-  const [count, setCount] = useState(0);
+function AnimatedStat({ value, suffix = '', label }) {
   const ref = useRef(null);
-  const started = useRef(false);
+  const inView = useInView(ref, { once: true, amount: 0.5 });
+  const reduce = useReducedMotion();
+  const [display, setDisplay] = useState(0);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !started.current) {
-          started.current = true;
-          const startTime = performance.now();
-          const animate = (now) => {
-            const elapsed = now - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            // Ease out cubic
-            const eased = 1 - Math.pow(1 - progress, 3);
-            setCount(Math.round(eased * target));
-            if (progress < 1) requestAnimationFrame(animate);
-          };
-          requestAnimationFrame(animate);
-        }
-      },
-      { threshold: 0.3 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [target, duration]);
+    if (!inView || reduce) return undefined;
+    const controls = animate(0, value, {
+      duration: 1.2,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    });
+    return () => controls.stop();
+  }, [inView, reduce, value]);
 
-  return [count, ref];
-}
-
-/** Animated stat number */
-function AnimatedStat({ value, suffix = '', label }) {
-  const [count, ref] = useCounter(value);
   return (
     <div ref={ref} className="text-center">
-      <div className="text-4xl font-bold text-white tracking-tight">
-        {count}{suffix}
+      <div className="text-4xl sm:text-5xl font-bold tracking-tight text-hp-fg tabular-nums">
+        {reduce && inView ? value : display}{suffix}
       </div>
-      <div className="mt-1 text-sm text-slate-400">{label}</div>
+      <div className="mt-1.5 text-sm text-hp-muted">{label}</div>
     </div>
   );
 }
 
-/** Severity badge */
-function SeverityBadge({ level }) {
-  const styles = {
-    CRITICAL: 'bg-red-500/15 text-red-400 border-red-500/30',
-    HIGH: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
-    MEDIUM: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-    LOW: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-    INFORMATIONAL: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${styles[level] || styles.INFORMATIONAL}`}>
-      {level}
-    </span>
-  );
-}
+const THREATS = [
+  {
+    icon: Skull,
+    title: 'Booby-trapped model files',
+    attack: 'A pickle checkpoint can run os.system the moment someone calls pickle.load or torch.load.',
+    caught: ['MODEL-002', 'Dangerous callable found in opcodes — without loading the file.'],
+  },
+  {
+    icon: Bug,
+    title: 'Poisoned training data',
+    attack: 'Injected duplicate rows and extreme values quietly bias a model toward an attacker’s goal.',
+    caught: ['DATA-007', 'Duplicate concentration, outliers and label skew are flagged.'],
+  },
+  {
+    icon: Package,
+    title: 'Typosquatted packages',
+    attack: '“reqeusts” instead of “requests” installs someone else’s code on every build.',
+    caught: ['DEP-005', 'Near-miss names of popular packages are reported.'],
+  },
+];
 
-/** Scanner capability card */
-function ScannerCard({ icon: Icon, color, title, formats, checks, badge }) {
-  const colorMap = {
-    teal: {
-      icon: 'text-teal-400',
-      bg: 'bg-teal-500/10',
-      border: 'border-teal-500/20 hover:border-teal-400/40',
-      badge: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
-    },
-    violet: {
-      icon: 'text-violet-400',
-      bg: 'bg-violet-500/10',
-      border: 'border-violet-500/20 hover:border-violet-400/40',
-      badge: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-    },
-    blue: {
-      icon: 'text-blue-400',
-      bg: 'bg-blue-500/10',
-      border: 'border-blue-500/20 hover:border-blue-400/40',
-      badge: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
-    },
-  };
-  const c = colorMap[color] || colorMap.teal;
+const LAYERS = [
+  { icon: Server, title: 'API Layer', tone: 'teal', items: ['FastAPI REST endpoints', 'JWT authentication', 'Extension & size validation', 'Upload storage'] },
+  { icon: GitBranch, title: 'Scanner Layer', tone: 'blue', items: ['Scanner registry by artifact type', 'Model · Dataset · Dependency', 'One Finding interface', 'Provenance check'] },
+  { icon: Activity, title: 'Risk Engine', tone: 'violet', items: ['Severity weighting', 'Score aggregation', 'Risk level overrides', 'Plain-language explanation'] },
+  { icon: Database, title: 'Data Layer', tone: 'teal', items: ['SQLAlchemy ORM', 'Alembic migrations', 'Scan & finding history', 'Quarantine audit log'] },
+];
 
+const GUARANTEES = [
+  { icon: EyeOff, title: 'Never deserializes', text: 'No pickle.load, torch.load or eval on anything you upload.' },
+  { icon: Ban, title: 'Never installs', text: 'Dependency files are read as text. No pip, no imports, no network.' },
+  { icon: Hash, title: 'Fingerprints everything', text: 'Every artifact gets a SHA-256 hash for tamper checks.' },
+  { icon: Lock, title: 'Quarantine with audit', text: 'Blocking an artifact records who did it, when and why.' },
+];
+
+function ScannerCard({ scanner, delay }) {
+  const tone = TONES[scanner.tone];
+  const Icon = scanner.icon;
   return (
-    <div className={`group rounded-2xl border bg-slate-900/60 backdrop-blur-sm p-7 transition-all duration-300 ${c.border}`}>
-      <div className="flex items-start justify-between mb-5">
-        <div className={`p-3 rounded-xl ${c.bg} ${c.icon}`}>
-          <Icon size={24} />
+    <Reveal delay={delay} className="h-full">
+      <motion.div
+        whileHover={{ y: -4 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+        className="hp-card h-full p-6 sm:p-7 flex flex-col"
+      >
+        <div className="flex items-start justify-between gap-3 mb-5">
+          <span className={`p-3 rounded-xl border ${tone.bg} ${tone.border} ${tone.text}`}>
+            <Icon size={22} />
+          </span>
+          <span className={`px-2.5 py-1 rounded-md border text-[11px] font-mono font-semibold ${tone.bg} ${tone.border} ${tone.text}`}>
+            {scanner.badge}
+          </span>
         </div>
-        <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold border ${c.badge}`}>
-          {badge}
-        </span>
-      </div>
+        <h3 className="text-xl font-bold text-hp-fg mb-2">{scanner.title}</h3>
+        <p className="text-sm text-hp-muted leading-relaxed mb-5">{scanner.summary}</p>
 
-      <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
-
-      <div className="mb-4">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Formats</div>
-        <div className="flex flex-wrap gap-1.5">
-          {formats.map(fmt => (
-            <span key={fmt} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-xs font-mono border border-slate-700/50">
-              {fmt}
-            </span>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-hp-faint mb-2">Formats</div>
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {scanner.formats.map((f) => (
+            <span key={f} className="px-2 py-0.5 rounded-md bg-hp-inset border border-hp-line text-xs font-mono text-hp-muted">{f}</span>
           ))}
         </div>
-      </div>
 
-      <div>
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Security Checks</div>
-        <ul className="space-y-1.5">
-          {checks.map(check => (
-            <li key={check} className="flex items-center gap-2 text-sm text-slate-300">
-              <CheckCircle2 size={13} className={`${c.icon} shrink-0`} />
-              {check}
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-hp-faint mb-2">Example rules</div>
+        <ul className="space-y-1.5 mt-auto">
+          {scanner.rules.map(([id, label]) => (
+            <li key={id} className="flex items-baseline gap-2 text-sm">
+              <span className={`font-mono text-[11px] shrink-0 ${tone.text}`}>{id}</span>
+              <span className="text-hp-muted">{label}</span>
             </li>
           ))}
         </ul>
-      </div>
-    </div>
+      </motion.div>
+    </Reveal>
   );
 }
 
-/** Sample finding row for the demo section */
-function FindingRow({ rule, title, severity, desc }) {
+function SampleReport() {
+  const findings = [
+    {
+      rule: 'MODEL-002', severity: 'CRITICAL', title: 'Suspicious module/callable references found in pickle opcodes',
+      evidence: 'Suspicious GLOBAL references found:\n  - os.system',
+      fix: 'Do not deserialize this artifact. Investigate its origin and quarantine it.',
+    },
+    {
+      rule: 'MODEL-001', severity: 'HIGH', title: 'Pickle-based serialization detected',
+      evidence: 'File extension: .pkl',
+      fix: 'Prefer SafeTensors or ONNX. Only load pickles from trusted sources in isolation.',
+    },
+    {
+      rule: 'PROV-001', severity: 'INFORMATIONAL', title: 'Provenance recorded',
+      evidence: 'sha256 recorded as the trusted baseline for this artifact.',
+      fix: 'Future uploads with a different hash will be flagged.',
+    },
+  ];
+  const [open, setOpen] = useState(0);
+
   return (
-    <div className="flex items-start gap-4 p-4 rounded-xl bg-slate-800/40 border border-slate-700/40 hover:border-slate-600/50 transition-colors">
-      <div className="shrink-0 mt-0.5">
-        <SeverityBadge level={severity} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap mb-0.5">
-          <span className="text-xs font-mono text-slate-500">{rule}</span>
-          <span className="text-sm font-semibold text-white">{title}</span>
+    <Reveal className="max-w-4xl mx-auto">
+      <div className="hp-card overflow-hidden">
+        <div className="px-5 sm:px-6 py-4 border-b border-hp-line flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="p-2 rounded-lg bg-hp-inset border border-hp-line text-hp-accent"><FileSearch size={16} /></span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-hp-fg truncate">resnet_classifier.pkl</div>
+              <div className="text-xs font-mono text-hp-faint truncate">MODEL · 48 KB · ModelScanner</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold border text-hp-low bg-hp-low/10 border-hp-low/30">COMPLETED</span>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-hp-high tabular-nums">16</div>
+              <div className="text-[11px] text-hp-faint">Risk score · HIGH</div>
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-slate-400 leading-relaxed">{desc}</p>
+
+        <div className="grid grid-cols-5 border-b border-hp-line text-center">
+          {[['Critical', 1, 'text-hp-crit'], ['High', 1, 'text-hp-high'], ['Medium', 0, 'text-hp-med'], ['Low', 0, 'text-hp-low'], ['Info', 1, 'text-hp-info']].map(([label, n, color]) => (
+            <div key={label} className="py-3 border-r border-hp-line last:border-r-0">
+              <div className={`text-xl font-bold tabular-nums ${color}`}>{n}</div>
+              <div className="text-[11px] text-hp-faint">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-2.5">
+          {findings.map((f, i) => (
+            <div key={f.rule} className="rounded-xl border border-hp-line bg-hp-inset/60">
+              <button
+                type="button"
+                onClick={() => setOpen(open === i ? -1 : i)}
+                aria-expanded={open === i}
+                className="w-full flex items-start gap-3 p-3.5 text-left cursor-pointer"
+              >
+                <SeverityBadge level={f.severity} className="shrink-0 mt-0.5" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-mono text-hp-faint">{f.rule}</span>
+                  <span className="block text-sm font-semibold text-hp-fg">{f.title}</span>
+                </span>
+                <motion.span animate={{ rotate: open === i ? 180 : 0 }} className="shrink-0 text-hp-faint mt-1">
+                  <ChevronDown size={16} />
+                </motion.span>
+              </button>
+              <motion.div
+                initial={false}
+                animate={{ height: open === i ? 'auto' : 0, opacity: open === i ? 1 : 0 }}
+                transition={{ duration: 0.25 }}
+                className="overflow-hidden"
+              >
+                <div className="px-3.5 pb-4 grid sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <div className="font-semibold text-hp-faint uppercase tracking-wider text-[10px] mb-1">Evidence</div>
+                    <pre className="whitespace-pre-wrap font-mono text-hp-muted bg-hp-surface border border-hp-line rounded-lg p-2.5">{f.evidence}</pre>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-hp-faint uppercase tracking-wider text-[10px] mb-1">Recommendation</div>
+                    <p className="text-hp-muted leading-relaxed">{f.fix}</p>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-5 sm:px-6 py-3.5 border-t border-hp-line bg-hp-inset flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="text-hp-faint italic">Illustrative example — real results come from your uploads.</span>
+          <span className="flex items-center gap-2 text-hp-muted">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-hp-line bg-hp-surface"><FileJson size={12} /> JSON</span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-hp-line bg-hp-surface"><FileText size={12} /> PDF</span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-hp-crit/30 text-hp-crit bg-hp-crit/10"><Lock size={12} /> Quarantine</span>
+          </span>
+        </div>
       </div>
-    </div>
+    </Reveal>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main HomePage Component
+// Page
 // ---------------------------------------------------------------------------
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+  const { theme, toggleTheme, fading } = useTheme();
 
+  // Keep overscroll / rubber-band areas the same colour as the page.
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 30);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+    const previous = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = theme === 'dark' ? '#070c18' : '#f7f8fa';
+    return () => { document.body.style.backgroundColor = previous; };
+  }, [theme]);
 
-  const handleStartScanning = () => {
-    navigate(user ? '/dashboard' : '/login');
-  };
-
-  const scrollTo = (id) => {
-    setMobileMenuOpen(false);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  // -------------------------------------------------------------------------
-  // Nav links
-  // -------------------------------------------------------------------------
-  const navLinks = [
-    { label: 'How It Works', id: 'how-it-works' },
-    { label: 'Scanners', id: 'scanners' },
-    { label: 'Demo', id: 'demo' },
-    { label: 'Architecture', id: 'architecture' },
-  ];
+  const handleStartScanning = () => navigate(user ? '/upload' : '/login');
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 
   return (
-    <div className="min-h-screen bg-[#080e1e] text-slate-100 overflow-x-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-
-      {/* Google Fonts */}
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
-      {/* ================================================================
-          AMBIENT BACKGROUND
-          ================================================================ */}
-      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-        {/* Top-center glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] opacity-30"
-          style={{ background: 'radial-gradient(ellipse at center, rgba(20,184,166,0.3) 0%, rgba(37,99,235,0.15) 50%, transparent 75%)' }}
-        />
-        {/* Bottom-left accent */}
-        <div className="absolute bottom-0 left-0 w-[600px] h-[400px] opacity-20"
-          style={{ background: 'radial-gradient(ellipse at bottom left, rgba(124,58,237,0.4) 0%, transparent 70%)' }}
-        />
-        {/* Subtle grid */}
-        <div className="absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage: 'linear-gradient(rgba(148,163,184,1) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,1) 1px, transparent 1px)',
-            backgroundSize: '64px 64px',
-          }}
-        />
-      </div>
-
-      {/* ================================================================
-          NAVBAR
-          ================================================================ */}
-      <header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled
-            ? 'bg-[#080e1e]/90 backdrop-blur-xl border-b border-slate-700/50 shadow-2xl shadow-black/40'
-            : 'bg-transparent border-b border-transparent'
-        }`}
+    <MotionConfig reducedMotion="user">
+      <div
+        data-theme={theme}
+        className={`hp ${fading ? 'hp-theme-fade' : ''} min-h-screen overflow-x-clip font-sans antialiased selection:bg-hp-accent/25`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 md:h-18">
+        <HomeNav
+          user={user}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onStart={handleStartScanning}
+          onNavigate={navigate}
+          onScrollTo={scrollTo}
+        />
 
-            {/* Brand */}
-            <button
-              type="button"
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className="flex items-center gap-2.5 group cursor-pointer"
-              aria-label="AISecGuard home"
-            >
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-500/30 to-blue-600/30 border border-teal-500/30 group-hover:border-teal-400/50 transition-all">
-                <Shield size={22} className="text-teal-400" />
-              </div>
-              <div className="flex flex-col leading-none">
-                <span className="text-base font-bold text-white tracking-tight">AISecGuard</span>
-                <span className="text-[10px] text-slate-500 font-medium tracking-wide uppercase">AI Supply Chain Security</span>
-              </div>
-            </button>
-
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center gap-1">
-              {navLinks.map(link => (
-                <button
-                  key={link.id}
-                  type="button"
-                  onClick={() => scrollTo(link.id)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all cursor-pointer"
-                >
-                  {link.label}
-                </button>
-              ))}
-            </nav>
-
-            {/* Auth actions */}
-            <div className="hidden md:flex items-center gap-3">
-              {user ? (
-                <>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
-                    <span className="text-teal-300 font-medium truncate max-w-[120px]">
-                      {user.full_name || user.email}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/dashboard')}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold transition-all shadow-lg shadow-teal-600/20 cursor-pointer"
-                  >
-                    Dashboard <ArrowRight size={14} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/login')}
-                    className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all cursor-pointer"
-                  >
-                    Sign in
-                  </button>
-                  <button
-                    type="button"
-                    id="nav-start-scanning"
-                    onClick={handleStartScanning}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold transition-all shadow-lg shadow-teal-600/25 cursor-pointer"
-                  >
-                    Start Scanning <ArrowRight size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Mobile hamburger */}
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-              aria-label="Toggle navigation"
-            >
-              {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
-            </button>
+        {/* ============================== HERO ============================== */}
+        <section id="hero" className="relative pt-28 pb-16 md:pt-36 md:pb-24">
+          <div className="absolute inset-0 -z-0 pointer-events-none" aria-hidden="true">
+            <div className="absolute inset-0 hp-grid-bg" />
+            <div className="absolute inset-0 hp-glow" />
           </div>
-        </div>
 
-        {/* Mobile menu */}
-        {mobileMenuOpen && (
-          <div className="md:hidden bg-[#080e1e]/98 backdrop-blur-xl border-b border-slate-700/50 px-4 pb-6 pt-2 space-y-1">
-            {navLinks.map(link => (
-              <button
-                key={link.id}
-                type="button"
-                onClick={() => scrollTo(link.id)}
-                className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all cursor-pointer"
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-14 items-center">
+            <div className="text-center lg:text-left">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-hp-accent/30 bg-hp-accent/10 text-xs font-semibold text-hp-accent mb-7"
               >
-                {link.label}
-              </button>
-            ))}
-            <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
-              {user ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-hp-accent animate-pulse" />
+                MCA Final Year Project · AI Supply Chain Security
+              </motion.div>
+
+              <motion.h1
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+                className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.08] text-hp-fg mb-6 text-balance"
+              >
+                Scan AI Artifacts for{' '}
+                <span className="bg-gradient-to-r from-hp-accent to-hp-blue bg-clip-text text-transparent">Supply Chain Risks</span>
+              </motion.h1>
+
+              <motion.p
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                className="text-lg text-hp-muted leading-relaxed max-w-xl mx-auto lg:mx-0 mb-9 text-pretty"
+              >
+                AISecGuard statically analyzes AI models, training datasets and dependency manifests for
+                hidden code, poisoning and typosquatting — without ever executing what you upload.
+              </motion.p>
+
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 mb-10"
+              >
                 <button
                   type="button"
-                  onClick={() => { setMobileMenuOpen(false); navigate('/dashboard'); }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-semibold cursor-pointer"
+                  id="hero-btn-start-scanning"
+                  onClick={handleStartScanning}
+                  className="group w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-hp-accent hover:bg-hp-accent-strong text-hp-on-accent font-bold shadow-lg shadow-hp-accent/20 transition-colors cursor-pointer"
                 >
-                  Go to Dashboard <ArrowRight size={14} />
+                  Start Scanning
+                  <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" />
                 </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => { setMobileMenuOpen(false); navigate('/login'); }}
-                    className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 border border-slate-700 hover:bg-slate-800 cursor-pointer"
-                  >
-                    Sign in
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setMobileMenuOpen(false); handleStartScanning(); }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-semibold cursor-pointer"
-                  >
-                    Start Scanning <ArrowRight size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </header>
+                <button
+                  type="button"
+                  id="hero-btn-see-demo"
+                  onClick={() => scrollTo('how-it-works')}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-hp-line-strong bg-hp-surface text-hp-fg font-semibold hover:border-hp-accent/50 transition-colors cursor-pointer"
+                >
+                  See how it works
+                  <ChevronDown size={18} className="text-hp-faint" />
+                </button>
+              </motion.div>
 
-      {/* ================================================================
-          HERO SECTION
-          ================================================================ */}
-      <section id="hero" className="relative pt-32 pb-20 md:pt-40 md:pb-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-4xl mx-auto text-center">
-
-            {/* Academic badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-950/60 border border-teal-500/30 text-xs font-semibold text-teal-400 mb-8 tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
-              MCA Final Year Project · AI Supply Chain Security Research
-            </div>
-
-            {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight leading-[1.1] mb-6">
-              Scan AI Artifacts for{' '}
-              <span className="text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(135deg, #14b8a6, #3b82f6)' }}>
-                Supply Chain Risks
-              </span>
-            </h1>
-
-            {/* Subheadline */}
-            <p className="text-lg sm:text-xl text-slate-300 leading-relaxed max-w-3xl mx-auto mb-10">
-              AISecGuard statically analyzes AI models, training datasets, and dependency manifests
-              to surface potential security indicators — without executing untrusted code.
-            </p>
-
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
-              <button
-                type="button"
-                id="hero-btn-start-scanning"
-                onClick={handleStartScanning}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-base font-bold transition-all shadow-xl shadow-teal-600/25 hover:shadow-teal-500/35 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+              <motion.ul
+                initial="hidden"
+                animate="show"
+                variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.3 } } }}
+                className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto lg:mx-0"
               >
-                Start Scanning
-                <ArrowRight size={18} />
-              </button>
-              <button
-                type="button"
-                id="hero-btn-see-demo"
-                onClick={() => scrollTo('demo')}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-slate-600 text-slate-200 hover:text-white text-base font-semibold transition-all cursor-pointer"
-              >
-                See a Sample Scan
-                <ChevronDown size={18} className="text-slate-400" />
-              </button>
-            </div>
-
-            {/* Key differentiators */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl mx-auto">
-              {[
-                { icon: Lock, text: 'Zero Code Execution', sub: 'Static analysis only' },
-                { icon: Hash, text: 'SHA-256 Integrity', sub: 'Artifact fingerprinting' },
-                { icon: FileSearch, text: 'Structured Findings', sub: 'Evidence + recommendations' },
-              ].map(({ icon: Icon, text, sub }) => (
-                <div key={text} className="flex flex-col items-center gap-1.5 p-4 rounded-xl bg-slate-800/40 border border-slate-700/50">
-                  <Icon size={18} className="text-teal-400" />
-                  <span className="text-sm font-semibold text-white">{text}</span>
-                  <span className="text-xs text-slate-400">{sub}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          HOW IT WORKS
-          ================================================================ */}
-      <section id="how-it-works" className="py-20 md:py-28 border-t border-slate-800/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <div className="text-xs font-semibold text-teal-400 uppercase tracking-wider mb-3">Workflow</div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-4">
-              Upload. Scan. Review.
-            </h2>
-            <p className="text-slate-400 leading-relaxed">
-              A three-step pipeline turns an uploaded artifact into a structured security report.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
-            {/* Connector line (desktop) */}
-            <div className="hidden md:block absolute top-12 left-1/3 right-1/3 h-px bg-gradient-to-r from-transparent via-teal-500/40 to-transparent" />
-
-            {[
-              {
-                step: '01',
-                icon: Layers,
-                title: 'Upload Artifact',
-                desc: 'Upload an AI model, dataset file, or dependency manifest. AISecGuard validates the file type, computes its SHA-256 hash, and stores it securely.',
-                details: ['File type validation', 'Size limit enforcement', 'SHA-256 fingerprinting'],
-              },
-              {
-                step: '02',
-                icon: FileSearch,
-                title: 'Static Analysis',
-                desc: 'The appropriate scanner runs static checks — inspecting binary structures, statistical patterns, or dependency declarations. No code is ever executed.',
-                details: ['Format-specific inspection', 'Byte-level pattern matching', 'Statistical anomaly detection'],
-              },
-              {
-                step: '03',
-                icon: Activity,
-                title: 'Risk Assessment',
-                desc: 'Findings are aggregated into a risk score with severity breakdown. A structured report with evidence and recommendations is generated.',
-                details: ['Weighted severity scoring', 'Findings with evidence', 'JSON & PDF report export'],
-              },
-            ].map(({ step, icon: Icon, title, desc, details }) => (
-              <div key={step} className="relative group">
-                <div className="p-7 rounded-2xl bg-slate-900/70 border border-slate-700/50 hover:border-teal-500/30 transition-all duration-300 h-full">
-                  <div className="flex items-center gap-4 mb-5">
-                    <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400">
-                      <Icon size={22} />
-                    </div>
-                    <div className="text-3xl font-black text-slate-700 font-mono">{step}</div>
-                  </div>
-                  <h3 className="text-xl font-bold text-white mb-3">{title}</h3>
-                  <p className="text-sm text-slate-400 leading-relaxed mb-5">{desc}</p>
-                  <ul className="space-y-2">
-                    {details.map(d => (
-                      <li key={d} className="flex items-center gap-2 text-xs text-slate-300">
-                        <CheckCircle2 size={12} className="text-teal-400 shrink-0" />
-                        {d}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          SCANNERS SECTION
-          ================================================================ */}
-      <section id="scanners" className="py-20 md:py-28 border-t border-slate-800/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <div className="text-xs font-semibold text-violet-400 uppercase tracking-wider mb-3">Security Scanners</div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-4">
-              Three Specialized Scanners
-            </h2>
-            <p className="text-slate-400 leading-relaxed">
-              Each scanner is purpose-built for its artifact type, with format-specific static checks
-              and risk indicators. All operate on bytes — never on executing code.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <ScannerCard
-              icon={Cpu}
-              color="teal"
-              title="AI Model Scanner"
-              badge="Static Bytes"
-              formats={['.pkl', '.joblib', '.pt', '.h5', '.onnx', '.safetensors', '.bin']}
-              checks={[
-                'Pickle opcode inspection (no deserialization)',
-                'Suspicious module reference detection',
-                'Format signature verification',
-                'SafeTensors header struct parsing',
-                'Embedded string pattern scan',
-              ]}
-            />
-            <ScannerCard
-              icon={Database}
-              color="violet"
-              title="Dataset Scanner"
-              badge="Statistical"
-              formats={['.csv', '.json', '.jsonl', '.parquet']}
-              checks={[
-                'Malformed / empty file detection',
-                'Missing value rate analysis',
-                'Duplicate record detection',
-                'Numerical outlier (z-score) check',
-                'Class imbalance indicator',
-              ]}
-            />
-            <ScannerCard
-              icon={Package}
-              color="blue"
-              title="Dependency Scanner"
-              badge="Lexical"
-              formats={['requirements.txt', 'pyproject.toml']}
-              checks={[
-                'Unpinned package detection',
-                'Broad version constraint flags',
-                'Typosquatting similarity heuristic',
-                'Duplicate declaration check',
-                'Invalid syntax detection',
-              ]}
-            />
-          </div>
-
-          {/* Disclaimer */}
-          <div className="mt-8 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-3 max-w-3xl mx-auto">
-            <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-200/80 leading-relaxed">
-              <strong className="text-amber-300">Academic Prototype Disclaimer:</strong>{' '}
-              All findings are heuristic indicators produced by static analysis.
-              A finding does not guarantee an artifact is actively malicious.
-              Results require review by a qualified security analyst.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          STATS BAND
-          ================================================================ */}
-      <section className="py-14 border-t border-b border-slate-800/50 bg-slate-900/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            <AnimatedStat value={8} label="Supported model formats" />
-            <AnimatedStat value={97} suffix="%" label="Automated test coverage" />
-            <AnimatedStat value={5} label="Security check categories" />
-            <AnimatedStat value={3} label="Report export formats" />
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          DEMO / SAMPLE SCAN
-          ================================================================ */}
-      <section id="demo" className="py-20 md:py-28 border-t border-slate-800/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <div className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Sample Output</div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-4">
-              What a Scan Result Looks Like
-            </h2>
-            <p className="text-slate-400 leading-relaxed">
-              This is an illustrative example of the output format for a hypothetical pickle-based model scan.
-              Real results are generated from your actual uploaded artifacts.
-            </p>
-          </div>
-
-          <div className="max-w-4xl mx-auto">
-            {/* Sample scan header */}
-            <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 overflow-hidden shadow-2xl">
-              {/* Scan metadata bar */}
-              <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-slate-800 border border-slate-700">
-                    <Cpu size={16} className="text-teal-400" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white">suspicious_model.pkl</div>
-                    <div className="text-xs text-slate-500 font-mono">sha256: a3f4b2c1... · 48 KB · MODEL</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-500/15 text-green-400 border border-green-500/30">
-                    COMPLETED
-                  </span>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-orange-400">16</div>
-                    <div className="text-xs text-slate-500">Risk Score · HIGH</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Risk breakdown */}
-              <div className="px-6 py-4 border-b border-slate-700/50 grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {[
-                  { label: 'Critical', count: 0, color: 'text-red-400' },
-                  { label: 'High', count: 2, color: 'text-orange-400' },
-                  { label: 'Medium', count: 1, color: 'text-amber-400' },
-                  { label: 'Low', count: 1, color: 'text-emerald-400' },
-                  { label: 'Info', count: 0, color: 'text-slate-400' },
-                ].map(({ label, count, color }) => (
-                  <div key={label} className="text-center">
-                    <div className={`text-2xl font-bold ${color}`}>{count}</div>
-                    <div className="text-xs text-slate-500">{label}</div>
-                  </div>
+                  { icon: Lock, text: 'Zero Code Execution', sub: 'Static analysis only' },
+                  { icon: Hash, text: 'SHA-256 Integrity', sub: 'Tamper fingerprinting' },
+                  { icon: FileSearch, text: 'Structured Findings', sub: 'Evidence + fixes' },
+                ].map(({ icon: Icon, text, sub }) => (
+                  <motion.li
+                    key={text}
+                    variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }}
+                    className="flex sm:flex-col items-center sm:items-start gap-3 sm:gap-1.5 p-3.5 rounded-xl border border-hp-line bg-hp-surface/70 text-left"
+                  >
+                    <Icon size={18} className="text-hp-accent shrink-0" />
+                    <span>
+                      <span className="block text-sm font-semibold text-hp-fg">{text}</span>
+                      <span className="block text-xs text-hp-faint">{sub}</span>
+                    </span>
+                  </motion.li>
                 ))}
-              </div>
-
-              {/* Sample findings */}
-              <div className="p-5 space-y-3">
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Findings (illustrative example)</div>
-                <FindingRow
-                  rule="MODEL-001"
-                  severity="HIGH"
-                  title="Pickle-based serialization detected"
-                  desc="The uploaded model uses a pickle-based format. Pickle can execute arbitrary Python code during deserialization."
-                />
-                <FindingRow
-                  rule="MODEL-002"
-                  severity="HIGH"
-                  title="Suspicious module references in pickle opcodes"
-                  desc="Static opcode inspection found GLOBAL references to os.system — a pattern associated with malicious pickle payloads."
-                />
-                <FindingRow
-                  rule="PROV-001"
-                  severity="MEDIUM"
-                  title="No trusted provenance baseline available"
-                  desc="No previously recorded SHA-256 hash exists for this artifact. This is the first upload of this file."
-                />
-                <FindingRow
-                  rule="MODEL-005"
-                  severity="LOW"
-                  title="File size within normal range"
-                  desc="The file size (48 KB) is within expected bounds for this format."
-                />
-              </div>
-
-              {/* Footer */}
-              <div className="px-6 py-3 border-t border-slate-700/50 bg-slate-800/30 flex items-center justify-between text-xs text-slate-500">
-                <span className="italic">⚠ Sample output for illustration — not a real scan result</span>
-                <span className="font-mono">JSON + PDF export available</span>
-              </div>
+              </motion.ul>
             </div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.7, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full max-w-lg mx-auto lg:max-w-none"
+            >
+              <HeroScanConsole />
+            </motion.div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ================================================================
-          ARCHITECTURE SECTION
-          ================================================================ */}
-      <section id="architecture" className="py-20 md:py-28 border-t border-slate-800/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <div className="text-xs font-semibold text-teal-400 uppercase tracking-wider mb-3">Architecture</div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-4">
-              Built on a Layered Security Model
-            </h2>
-            <p className="text-slate-400 leading-relaxed">
-              AISecGuard is structured as a FastAPI backend with a React frontend,
-              backed by SQLAlchemy and a modular scanner architecture.
-            </p>
+        {/* ============================== THREATS ============================== */}
+        <Section id="threats" alt>
+          <SectionHeader eyebrow="The problem" title="AI artifacts are code you didn’t write" tone="violet">
+            Models, datasets and packages are pulled from hubs and registries every day. Each can carry an attack
+            that ordinary code scanners never look at.
+          </SectionHeader>
+          <div className="grid md:grid-cols-3 gap-5">
+            {THREATS.map(({ icon: Icon, title, attack, caught }, i) => (
+              <Reveal key={title} delay={i * 0.08} className="hp-card p-6 flex flex-col">
+                <span className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-hp-crit/10 border border-hp-crit/25 text-hp-crit mb-4">
+                  <Icon size={18} />
+                </span>
+                <h3 className="font-bold text-hp-fg mb-2">{title}</h3>
+                <p className="text-sm text-hp-muted leading-relaxed mb-5">{attack}</p>
+                <div className="mt-auto pt-4 border-t border-hp-line flex items-start gap-2.5">
+                  <ShieldCheck size={16} className="text-hp-accent shrink-0 mt-0.5" />
+                  <p className="text-sm text-hp-fg">
+                    <span className="font-mono text-xs text-hp-accent mr-1.5">{caught[0]}</span>
+                    {caught[1]}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
           </div>
+        </Section>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {[
-              {
-                icon: Shield,
-                layer: 'API Layer',
-                items: ['FastAPI REST endpoints', 'JWT authentication', 'Input validation', 'File upload handling'],
-                color: 'teal',
-              },
-              {
-                icon: FileSearch,
-                layer: 'Scanner Layer',
-                items: ['Model scanner (static)', 'Dataset scanner (statistical)', 'Dependency scanner (lexical)', 'Provenance checker'],
-                color: 'blue',
-              },
-              {
-                icon: Activity,
-                layer: 'Risk Engine',
-                items: ['Severity weighting', 'Score aggregation', 'Risk level mapping', 'Explainability output'],
-                color: 'violet',
-              },
-              {
-                icon: Database,
-                layer: 'Data Layer',
-                items: ['SQLAlchemy ORM', 'Alembic migrations', 'Scan history persistence', 'SHA-256 audit records'],
-                color: 'emerald',
-              },
-            ].map(({ icon: Icon, layer, items, color }) => {
-              const colorMap = {
-                teal: { icon: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
-                blue: { icon: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
-                violet: { icon: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
-                emerald: { icon: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-              };
-              const c = colorMap[color];
+        {/* ============================== HOW IT WORKS ============================== */}
+        <Section id="how-it-works">
+          <SectionHeader eyebrow="Workflow" title="Upload. Scan. Review.">
+            Every upload runs through the same six-step pipeline in the backend. Follow it below, or click any step.
+          </SectionHeader>
+          <Reveal>
+            <PipelineFlow />
+          </Reveal>
+        </Section>
+
+        {/* ============================== SCANNERS ============================== */}
+        <Section id="scanners" alt>
+          <SectionHeader eyebrow="Security scanners" title="Three Specialized Scanners" tone="blue">
+            Each artifact type has its own scanner behind one shared interface. All of them read bytes and text —
+            none of them run code.
+          </SectionHeader>
+          <div className="grid lg:grid-cols-3 gap-5">
+            {SCANNERS.map((s, i) => <ScannerCard key={s.id} scanner={s} delay={i * 0.08} />)}
+          </div>
+        </Section>
+
+        {/* ============================== STATS ============================== */}
+        <section className="py-14 border-t border-hp-line">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-2 md:grid-cols-4 gap-y-10 gap-x-6">
+            <AnimatedStat value={8} label="Supported model formats" />
+            <AnimatedStat value={FORMAT_COUNT} label="File formats in total" />
+            <AnimatedStat value={RULE_COUNT} label="Detection rules" />
+            <AnimatedStat value={MAX_UPLOAD_MB} suffix=" MB" label="Max upload size" />
+          </div>
+        </section>
+
+        {/* ============================== RISK ============================== */}
+        <Section id="risk" alt>
+          <SectionHeader eyebrow="Risk engine" title="How a Risk Score Is Calculated" tone="violet">
+            Findings add weighted points and the total maps to a level, with overrides so one critical issue is
+            never averaged away. Try it — this uses the same rules as the backend.
+          </SectionHeader>
+          <Reveal>
+            <RiskCalculator />
+          </Reveal>
+        </Section>
+
+        {/* ============================== DEMO ============================== */}
+        <Section id="demo">
+          <SectionHeader eyebrow="Sample output" title="What a Scan Result Looks Like" tone="blue">
+            Every finding carries a rule ID, severity, evidence and a recommendation. Expand a finding to see them.
+          </SectionHeader>
+          <SampleReport />
+        </Section>
+
+        {/* ============================== ARCHITECTURE ============================== */}
+        <Section id="architecture" alt>
+          <SectionHeader eyebrow="Architecture" title="Built on a Layered Security Model">
+            A FastAPI backend and React frontend, with scanners plugged in through a registry and every result
+            persisted for audit.
+          </SectionHeader>
+          <div className="relative grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {LAYERS.map(({ icon: Icon, title, tone, items }, i) => {
+              const t = TONES[tone];
               return (
-                <div key={layer} className="p-6 rounded-2xl bg-slate-900/60 border border-slate-700/50 hover:border-slate-600/50 transition-all">
-                  <div className={`p-3 rounded-xl ${c.bg} border ${c.border} ${c.icon} w-fit mb-4`}>
-                    <Icon size={20} />
+                <Reveal key={title} delay={i * 0.08} className="relative hp-card p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className={`p-2.5 rounded-xl border ${t.bg} ${t.border} ${t.text}`}><Icon size={18} /></span>
+                    <span className="font-mono text-xs text-hp-faint">L{i + 1}</span>
                   </div>
-                  <h3 className="font-bold text-white mb-3">{layer}</h3>
+                  <h3 className="font-bold text-hp-fg mb-3">{title}</h3>
                   <ul className="space-y-2">
-                    {items.map(item => (
-                      <li key={item} className="text-sm text-slate-400 flex items-start gap-2">
-                        <span className={`w-1 h-1 rounded-full mt-2 shrink-0 ${c.icon.replace('text-', 'bg-')}`} />
+                    {items.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-hp-muted">
+                        <span className={`w-1 h-1 rounded-full mt-2 shrink-0 ${t.dot}`} />
                         {item}
                       </li>
                     ))}
                   </ul>
-                </div>
+                  {i < LAYERS.length - 1 && (
+                    <span className="hidden lg:flex absolute top-1/2 -right-[14px] -translate-y-1/2 z-10 w-6 h-6 items-center justify-center rounded-full bg-hp-bg-alt border border-hp-line text-hp-faint">
+                      <ArrowRight size={12} />
+                    </span>
+                  )}
+                </Reveal>
               );
             })}
           </div>
-        </div>
-      </section>
+        </Section>
 
-      {/* ================================================================
-          FINAL CTA
-          ================================================================ */}
-      <section className="py-20 md:py-28 border-t border-slate-800/50">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        {/* ============================== SAFETY ============================== */}
+        <Section id="safety">
+          <SectionHeader eyebrow="Safety by design" title="Analysis that can’t be turned against you">
+            A scanner that loads a malicious model has already lost. These rules hold for every scanner.
+          </SectionHeader>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+            {GUARANTEES.map(({ icon: Icon, title, text }, i) => (
+              <Reveal key={title} delay={i * 0.06} className="hp-card p-5">
+                <Icon size={20} className="text-hp-accent mb-3" />
+                <h3 className="font-semibold text-hp-fg mb-1.5">{title}</h3>
+                <p className="text-sm text-hp-muted leading-relaxed">{text}</p>
+              </Reveal>
+            ))}
+          </div>
+          <Reveal className="max-w-3xl mx-auto p-4 rounded-xl border border-hp-med/30 bg-hp-med/10 flex items-start gap-3">
+            <AlertTriangle size={16} className="text-hp-med shrink-0 mt-0.5" />
+            <p className="text-xs sm:text-sm text-hp-fg leading-relaxed">
+              <strong>Academic Prototype Disclaimer:</strong>{' '}
+              findings are heuristic indicators from static analysis. A finding does not prove an artifact is
+              malicious, and a clean scan does not prove it is safe. Results need review by a qualified analyst.
+            </p>
+          </Reveal>
+        </Section>
 
-          <div className="p-10 md:p-14 rounded-3xl relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, rgba(20,184,166,0.15) 0%, rgba(37,99,235,0.15) 100%)', border: '1px solid rgba(20,184,166,0.25)' }}
-          >
-            {/* Background glow */}
-            <div className="absolute inset-0 opacity-30 pointer-events-none"
-              style={{ background: 'radial-gradient(ellipse at center, rgba(20,184,166,0.3) 0%, transparent 70%)' }}
-            />
-            <div className="relative">
-              <div className="flex items-center justify-center gap-3 mb-6">
-                <ShieldCheck size={32} className="text-teal-400" />
-              </div>
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                Ready to Analyze Your AI Artifacts?
-              </h2>
-              <p className="text-slate-300 leading-relaxed mb-8 max-w-xl mx-auto">
-                Register for a free account and start scanning your AI models, datasets,
-                and dependency files in minutes.
-              </p>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <button
-                  type="button"
-                  id="cta-start-scanning"
-                  onClick={handleStartScanning}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-base font-bold transition-all shadow-xl shadow-teal-600/30 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+        {/* ============================== FAQ ============================== */}
+        <Section id="faq" alt>
+          <SectionHeader eyebrow="FAQ" title="Questions, answered" />
+          <Reveal>
+            <Faq />
+          </Reveal>
+        </Section>
+
+        {/* ============================== CTA ============================== */}
+        <section className="py-20 md:py-28 border-t border-hp-line">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <Reveal className="relative overflow-hidden rounded-3xl border border-hp-accent/30 bg-hp-surface p-8 sm:p-12 md:p-14 text-center">
+              <div className="absolute inset-0 hp-glow pointer-events-none" aria-hidden="true" />
+              <div className="relative">
+                <motion.span
+                  className="inline-flex p-3 rounded-2xl bg-hp-accent/10 border border-hp-accent/25 text-hp-accent mb-6"
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 >
-                  {user ? 'Go to Dashboard' : 'Create Account & Scan'}
-                  <ArrowRight size={18} />
-                </button>
-                {!user && (
+                  <ShieldCheck size={28} />
+                </motion.span>
+                <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-hp-fg mb-4 text-balance">
+                  Ready to Analyze Your AI Artifacts?
+                </h2>
+                <p className="text-hp-muted leading-relaxed mb-8 max-w-xl mx-auto">
+                  Upload a model, dataset or requirements file and get a scored, evidence-backed report in seconds.
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button
                     type="button"
-                    onClick={() => navigate('/login')}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-slate-600 text-slate-200 hover:text-white hover:border-slate-500 text-base font-semibold transition-all cursor-pointer"
+                    id="cta-start-scanning"
+                    onClick={handleStartScanning}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-hp-accent hover:bg-hp-accent-strong text-hp-on-accent font-bold transition-colors cursor-pointer"
                   >
-                    Sign in
+                    {user ? 'Upload an artifact' : 'Create Account & Scan'}
+                    <ArrowRight size={18} />
                   </button>
-                )}
+                  {user ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/dashboard')}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-hp-line-strong text-hp-fg font-semibold hover:border-hp-accent/50 transition-colors cursor-pointer"
+                    >
+                      Open Dashboard
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/login')}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-hp-line-strong text-hp-fg font-semibold hover:border-hp-accent/50 transition-colors cursor-pointer"
+                    >
+                      Sign in
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            </Reveal>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ================================================================
-          FOOTER
-          ================================================================ */}
-      <footer className="border-t border-slate-800/50 py-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
-              <Shield size={18} className="text-teal-400" />
-              <span className="text-sm font-semibold text-slate-300">AISecGuard</span>
-              <span className="text-slate-600">·</span>
-              <span className="text-xs text-slate-500">MCA Final Year Project</span>
+        {/* ============================== FOOTER ============================== */}
+        <footer className="border-t border-hp-line bg-hp-bg-alt">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div>
+              <div className="flex items-center gap-2.5 mb-3">
+                <Shield size={18} className="text-hp-accent" />
+                <span className="font-bold text-hp-fg">AISecGuard</span>
+              </div>
+              <p className="text-sm text-hp-muted leading-relaxed max-w-xs">
+                Static security scanning for AI models, datasets and dependencies. MCA Final Year Project.
+              </p>
             </div>
-            <div className="flex items-center gap-6">
-              <Link to="/login" className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                Sign In
-              </Link>
-              <Link to="/register" className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                Register
-              </Link>
-              <span className="text-xs text-slate-600">
-                Static Analysis Only · No Code Execution
-              </span>
-            </div>
+            <FooterColumn title="Product">
+              <FooterButton onClick={() => scrollTo('how-it-works')}>How it works</FooterButton>
+              <FooterButton onClick={() => scrollTo('scanners')}>Scanners</FooterButton>
+              <FooterButton onClick={() => scrollTo('risk')}>Risk scoring</FooterButton>
+              <FooterButton onClick={() => scrollTo('faq')}>FAQ</FooterButton>
+            </FooterColumn>
+            <FooterColumn title="App">
+              <Link to="/dashboard" className="text-sm text-hp-muted hover:text-hp-fg">Dashboard</Link>
+              <Link to="/upload" className="text-sm text-hp-muted hover:text-hp-fg">Upload artifact</Link>
+              <Link to="/scans" className="text-sm text-hp-muted hover:text-hp-fg">Scan history</Link>
+              <Link to="/quarantine" className="text-sm text-hp-muted hover:text-hp-fg">Quarantine</Link>
+            </FooterColumn>
+            <FooterColumn title="Account & API">
+              <Link to="/login" className="text-sm text-hp-muted hover:text-hp-fg">Sign in</Link>
+              <Link to="/register" className="text-sm text-hp-muted hover:text-hp-fg">Register</Link>
+              <a href={`${API_BASE}/docs`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-hp-muted hover:text-hp-fg">
+                API docs <ExternalLink size={12} />
+              </a>
+              <a href={`${API_BASE}/health`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-hp-muted hover:text-hp-fg">
+                Health check <ExternalLink size={12} />
+              </a>
+            </FooterColumn>
           </div>
-          <div className="mt-6 pt-6 border-t border-slate-800/50 text-center">
-            <p className="text-xs text-slate-600 max-w-2xl mx-auto">
-              AISecGuard is an academic research prototype. Security findings are heuristic indicators
-              produced through static byte analysis. Results do not constitute professional security
-              audits and must be reviewed by qualified analysts before acting on them.
+          <div className="border-t border-hp-line">
+            <p className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 text-xs text-hp-faint text-center md:text-left">
+              Academic research prototype · Static analysis only · No code execution. Findings are indicators, not a
+              professional security audit.
             </p>
           </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
+    </MotionConfig>
+  );
+}
 
+function FooterColumn({ title, children }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-hp-faint mb-3">{title}</div>
+      <div className="flex flex-col items-start gap-2">{children}</div>
     </div>
+  );
+}
+
+function FooterButton({ onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className="text-sm text-hp-muted hover:text-hp-fg cursor-pointer">
+      {children}
+    </button>
   );
 }
