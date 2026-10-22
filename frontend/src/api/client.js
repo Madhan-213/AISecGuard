@@ -101,3 +101,8 @@ export const findingsApi = {
   list: (params) => apiClient.get('/api/v1/findings/', { params }),
   get: (id) => apiClient.get(`/api/v1/findings/${id}`),
 };
+
+// --- Stats (dashboard aggregate) ---
+export const statsApi = {
+  get: () => apiClient.get('/api/v1/stats/'),
+};

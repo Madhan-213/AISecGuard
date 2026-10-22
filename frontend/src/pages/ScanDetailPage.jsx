@@ -7,8 +7,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { scansApi, artifactsApi } from '../api/client';
 import {
-  Shield,
-  ShieldAlert,
   ShieldCheck,
   Download,
   Lock,
@@ -16,10 +14,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  AlertTriangle,
   FileCode,
   ArrowLeft,
-  Sparkles
 } from 'lucide-react';
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];

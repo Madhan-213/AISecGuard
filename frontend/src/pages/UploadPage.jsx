@@ -1,25 +1,37 @@
 /**
  * AISecGuard — Upload & Scan Page
- * Multi-type artifact ingestion, drag-and-drop zone, static analysis guarantee, and live phase progression.
+ * Week 6: Multi-type artifact ingestion with drag-and-drop, static analysis
+ * pipeline visualization, and honest error handling.
+ *
+ * - Selects artifact type (model / dataset / dependency)
+ * - Validates file extension against type before submitting
+ * - Submits to real backend /api/v1/scans/{type} endpoint
+ * - Shows animated scan phase progress bar during upload
+ * - Redirects to scan detail page on success
+ * - Shows clear, actionable error messages on failure
+ * - Never pretends a scan succeeded when it failed
  */
 
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { scansApi } from '../api/client';
-import { 
-  Cpu, 
-  Database, 
-  Package, 
-  UploadCloud, 
-  FileCheck2, 
-  AlertCircle, 
-  ShieldCheck, 
+import {
+  Cpu,
+  Database,
+  Package,
+  UploadCloud,
+  FileCheck2,
+  AlertCircle,
+  ShieldCheck,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  X,
 } from 'lucide-react';
 
 import { deviceCache } from '../utils/deviceCache';
+
+// ─── Configuration ───────────────────────────────────────────────────────────
 
 const SCAN_TYPES = [
   {
@@ -27,7 +39,8 @@ const SCAN_TYPES = [
     label: 'AI / ML Model',
     icon: Cpu,
     desc: 'Neural weights & graphs',
-    exts: '.pkl, .pt, .onnx, .safetensors, .h5, .bin',
+    exts: '.pkl, .pt, .pth, .onnx, .safetensors, .h5, .bin, .joblib',
+    mimePattern: null,
     accent: '#38bdf8',
   },
   {
@@ -48,22 +61,58 @@ const SCAN_TYPES = [
   },
 ];
 
+// Extension → type mapping (mirrors backend settings)
+const MODEL_EXTS      = new Set(['.pkl', '.joblib', '.h5', '.pt', '.pth', '.onnx', '.bin', '.safetensors']);
+const DATASET_EXTS    = new Set(['.csv', '.json', '.parquet', '.jsonl']);
+const DEPENDENCY_EXTS = new Set(['.txt', '.toml']);
+
 const SCAN_PHASES = [
-  { phase: 'QUEUED', label: 'Preparing pipeline…' },
+  { phase: 'QUEUED',           label: 'Preparing pipeline…' },
   { phase: 'PROVENANCE_CHECK', label: 'Verifying SHA-256 integrity baseline…' },
-  { phase: 'SCANNER_RUNNING', label: 'Executing static bytecode inspection…' },
-  { phase: 'RISK_CALC', label: 'Evaluating threat score and MITRE ATLAS rules…' },
-  { phase: 'COMPLETED', label: 'Analysis complete!' },
+  { phase: 'SCANNER_RUNNING',  label: 'Executing static bytecode inspection…' },
+  { phase: 'RISK_CALC',        label: 'Evaluating threat score and MITRE ATLAS rules…' },
+  { phase: 'COMPLETED',        label: 'Analysis complete!' },
 ];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getFileExtension(filename) {
+  return '.' + filename.split('.').pop().toLowerCase();
+}
+
+function validateFileForType(file, scanType) {
+  if (!file) return null;
+  const ext = getFileExtension(file.name);
+  const validSets = {
+    model:      MODEL_EXTS,
+    dataset:    DATASET_EXTS,
+    dependency: DEPENDENCY_EXTS,
+  };
+  const validSet = validSets[scanType];
+  if (!validSet.has(ext)) {
+    const expectedExts = Array.from(validSet).join(', ');
+    return `File extension "${ext}" is not supported for ${scanType} scans. Expected: ${expectedExts}`;
+  }
+  if (file.size === 0) {
+    return 'Uploaded file is empty. Please select a valid artifact file.';
+  }
+  if (file.size > 100 * 1024 * 1024) {
+    return 'File exceeds 100 MB maximum upload size.';
+  }
+  return null;
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function UploadPage() {
   const navigate = useNavigate();
-  const [scanType, setScanType] = useState('model');
-  const [file, setFile] = useState(null);
-  const [scanning, setScanning] = useState(false);
+  const [scanType, setScanType]           = useState('model');
+  const [file, setFile]                   = useState(null);
+  const [scanning, setScanning]           = useState(false);
   const [currentPhaseIndex, setCurrentPhaseIndex] = useState(0);
-  const [error, setError] = useState('');
+  const [error, setError]                 = useState('');
 
+  // ── Drag and drop ─────────────────────────────────────────────────────
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
       setFile(acceptedFiles[0]);
@@ -74,11 +123,20 @@ export default function UploadPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     multiple: false,
-    maxSize: 100 * 1024 * 1024, // 100 MB
+    maxSize: 100 * 1024 * 1024,
   });
 
+  // ── Scan submission ───────────────────────────────────────────────────
   const handleScan = async () => {
     if (!file) return;
+
+    // Client-side validation before hitting backend
+    const validationError = validateFileForType(file, scanType);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setError('');
     setScanning(true);
     setCurrentPhaseIndex(0);
@@ -86,7 +144,7 @@ export default function UploadPage() {
     const formData = new FormData();
     formData.append('file', file);
 
-    // Simulate animated phases smoothly while network request executes
+    // Animate phase steps while network request is in flight
     const interval = setInterval(() => {
       setCurrentPhaseIndex(prev => (prev < 3 ? prev + 1 : prev));
     }, 400);
@@ -104,7 +162,7 @@ export default function UploadPage() {
       clearInterval(interval);
       setCurrentPhaseIndex(4); // COMPLETED
 
-      // Persist in local device cache memory
+      // Persist result to local cache for offline continuity
       if (res?.data) {
         deviceCache.saveScan(res.data);
         if (res.data.artifact) {
@@ -113,57 +171,35 @@ export default function UploadPage() {
       }
 
       const scanId = res.data.id;
-      setTimeout(() => {
-        navigate(`/scans/${scanId}`);
-      }, 500);
+      setTimeout(() => navigate(`/scans/${scanId}`), 500);
+
     } catch (err) {
       clearInterval(interval);
-      // Fallback: If backend is offline, store in local device cache memory
-      const fallbackScan = {
-        id: `scan-local-${Date.now().toString(36)}`,
-        artifact_id: `art-${Date.now().toString(36)}`,
-        scan_type: scanType.toUpperCase(),
-        status: 'COMPLETED',
-        risk_score: 4.5,
-        risk_level: 'MEDIUM',
-        created_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        findings_count: 1,
-        artifact: {
-          id: `art-${Date.now().toString(36)}`,
-          filename: file.name,
-          artifact_type: scanType.toUpperCase(),
-          file_size_bytes: file.size,
-          sha256: 'local_hash_' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-          status: 'ACTIVE',
-          created_at: new Date().toISOString(),
-        },
-        findings: [
-          {
-            id: `fnd-local-${Date.now()}`,
-            severity: 'MEDIUM',
-            title: `Local Ingestion: ${file.name}`,
-            description: `Artifact ingested and stored directly in local device cache memory (${(file.size / 1024).toFixed(1)} KB).`,
-            rule_id: 'LOCAL_DEVICE_CACHE_INGEST',
-            scanner_name: `${scanType}_scanner`,
-            remediation: 'Verify artifact structure and launch deep scanner with active backend service.',
-            metadata: { filename: file.name, size: file.size }
-          }
-        ]
-      };
-      deviceCache.saveScan(fallbackScan);
-      deviceCache.saveArtifact(fallbackScan.artifact);
-      setCurrentPhaseIndex(4);
-      setTimeout(() => {
-        navigate(`/scans/${fallbackScan.id}`);
-      }, 500);
+      setScanning(false);
+      setCurrentPhaseIndex(0);
+
+      // Surface the actual backend error message
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (err.response?.status === 413) {
+        setError('File exceeds the maximum allowed upload size (100 MB).');
+      } else if (err.response?.status === 400) {
+        setError(detail || 'Invalid file or file type. Please check the supported extensions.');
+      } else if (!navigator.onLine || err.code === 'ERR_NETWORK') {
+        setError('Backend server is unreachable. Start the FastAPI backend and try again.');
+      } else {
+        setError(`Scan failed: ${detail || err.message || 'Unknown error. Check browser console for details.'}`);
+      }
     }
   };
 
   const selectedType = SCAN_TYPES.find(t => t.id === scanType);
 
+  // ─── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="fade-in" style={{ padding: '2rem 1.5rem', maxWidth: 760, margin: '0 auto' }}>
+
       {/* Header */}
       <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
         <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
@@ -191,7 +227,7 @@ export default function UploadPage() {
               <button
                 key={type.id}
                 id={`type-${type.id}`}
-                onClick={() => setScanType(type.id)}
+                onClick={() => { setScanType(type.id); setFile(null); setError(''); }}
                 type="button"
                 style={{
                   background: isSelected ? 'rgba(37, 99, 235, 0.15)' : 'rgba(25, 35, 57, 0.6)',
@@ -201,19 +237,13 @@ export default function UploadPage() {
                   cursor: 'pointer',
                   textAlign: 'left',
                   transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                  position: 'relative',
-                  overflow: 'hidden',
                 }}
               >
                 <div style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
+                  width: 36, height: 36, borderRadius: 8,
                   background: isSelected ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.6)',
                   color: isSelected ? '#60a5fa' : '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                   marginBottom: '0.75rem',
                 }}>
                   <Icon size={18} />
@@ -259,15 +289,9 @@ export default function UploadPage() {
           {file ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                background: 'rgba(16, 185, 129, 0.15)',
-                color: '#34d399',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '0.75rem',
+                width: 48, height: 48, borderRadius: '50%',
+                background: 'rgba(16, 185, 129, 0.15)', color: '#34d399',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem',
               }}>
                 <FileCheck2 size={24} />
               </div>
@@ -277,19 +301,20 @@ export default function UploadPage() {
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>
                 {(file.size / 1024).toFixed(1)} KB · Ready for inspection · Click to replace
               </div>
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setFile(null); setError(''); }}
+                style={{ marginTop: '0.75rem', background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+              >
+                <X size={14} /> Remove file
+              </button>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                background: 'rgba(59, 130, 246, 0.12)',
-                color: '#60a5fa',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '0.75rem',
+                width: 48, height: 48, borderRadius: '50%',
+                background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem',
               }}>
                 <UploadCloud size={24} />
               </div>
@@ -335,7 +360,7 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Error Notification */}
+        {/* Error Display */}
         {error && (
           <div className="alert-error" style={{ marginBottom: '1.25rem' }}>
             <AlertCircle size={16} />
@@ -343,7 +368,7 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Safety Guarantee Notice */}
+        {/* Safety Notice */}
         <div style={{
           background: 'rgba(59, 130, 246, 0.05)',
           border: '1px solid rgba(59, 130, 246, 0.2)',
@@ -356,7 +381,9 @@ export default function UploadPage() {
         }}>
           <ShieldCheck size={20} style={{ color: '#38bdf8', marginTop: 1, flexShrink: 0 }} />
           <div style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
-            <strong style={{ color: '#f1f5f9' }}>Strict Non-Execution Policy:</strong> Files are parsed via static opcode walkers and byte scanners. Untrusted models are never unpickled, executed, or loaded into GPU memory.
+            <strong style={{ color: '#f1f5f9' }}>Strict Non-Execution Policy:</strong> Files are parsed
+            via static opcode walkers and byte scanners. Untrusted models are never unpickled, executed,
+            or loaded into GPU memory.
           </div>
         </div>
 
@@ -366,12 +393,7 @@ export default function UploadPage() {
           className="btn btn-primary"
           disabled={!file || scanning}
           onClick={handleScan}
-          style={{
-            width: '100%',
-            padding: '0.85rem',
-            fontSize: '0.95rem',
-            fontWeight: 600,
-          }}
+          style={{ width: '100%', padding: '0.85rem', fontSize: '0.95rem', fontWeight: 600 }}
         >
           {scanning ? (
             <>

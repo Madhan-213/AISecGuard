@@ -1,11 +1,20 @@
 /**
- * AISecGuard — Dashboard Page
- * Real-time metrics from backend, Recharts risk distribution, findings breakdown, and recent scans.
+ * AISecGuard — Security Dashboard Page
+ * Week 6: Pulls real aggregate stats from backend /api/v1/stats endpoint,
+ * falls back to deviceCache when backend is offline.
+ *
+ * Features:
+ * - 4 stat cards: total scans, critical threats, quarantined, avg risk score
+ * - Risk-level distribution pie chart (Recharts)
+ * - Findings-by-severity bar chart (Recharts)
+ * - Recent scans table with risk/status badges and click-through to detail
+ * - Quick-action: Upload & Scan Artifact button
+ * - Backend health indicator (green when live, amber when cached)
  */
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { scansApi, findingsApi, artifactsApi } from '../api/client';
+import { statsApi } from '../api/client';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -19,24 +28,31 @@ import {
   ArrowUpRight,
   FileText,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  WifiOff,
+  Wifi,
+  RefreshCw,
 } from 'lucide-react';
+
+import { deviceCache } from '../utils/deviceCache';
 
 const RISK_COLORS = {
   CRITICAL: '#dc2626',
-  HIGH: '#ea580c',
-  MEDIUM: '#ca8a04',
-  LOW: '#10b981',
-  UNKNOWN: '#64748b',
+  HIGH:     '#ea580c',
+  MEDIUM:   '#ca8a04',
+  LOW:      '#10b981',
+  UNKNOWN:  '#64748b',
 };
 
 const SEV_COLORS = {
-  CRITICAL: '#dc2626',
-  HIGH: '#ea580c',
-  MEDIUM: '#ca8a04',
-  LOW: '#10b981',
+  CRITICAL:      '#dc2626',
+  HIGH:          '#ea580c',
+  MEDIUM:        '#ca8a04',
+  LOW:           '#10b981',
   INFORMATIONAL: '#64748b',
 };
+
+// ─── Sub-components ─────────────────────────────────────────────────────────
 
 function StatusBadge({ status }) {
   const norm = (status || 'pending').toLowerCase();
@@ -82,74 +98,101 @@ function StatCard({ title, value, sub, color, icon: Icon, glowColor }) {
   );
 }
 
-import { deviceCache } from '../utils/deviceCache';
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  // Initialize immediately from local device cache memory
-  const [scans, setScans] = useState(() => deviceCache.getScans());
-  const [findings, setFindings] = useState(() => deviceCache.getFindings());
-  const [artifacts, setArtifacts] = useState(() => deviceCache.getArtifacts());
-  const [loading, setLoading] = useState(false);
+
+  // State ──────────────────────────────────────────────────────────────────
+  const [stats, setStats] = useState(null);
+  const [recentScans, setRecentScans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [backendOnline, setBackendOnline] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+
+  // Derived from deviceCache as immediate fallback
+  const [localScans] = useState(() => deviceCache.getScans());
+  const [localFindings] = useState(() => deviceCache.getFindings());
+  const [localArtifacts] = useState(() => deviceCache.getArtifacts());
+
+  // Data fetching ──────────────────────────────────────────────────────────
+  const fetchData = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    try {
+      const res = await statsApi.get();
+      const data = res.data;
+      setStats(data);
+      setRecentScans(data.recent_scans || []);
+      setBackendOnline(true);
+      setLastRefreshed(new Date());
+
+      // Sync recent scans into local cache for offline continuity
+      if (data.recent_scans?.length) {
+        data.recent_scans.forEach(s => deviceCache.saveScan(s));
+      }
+    } catch {
+      // Backend offline — derive stats from local device cache
+      setBackendOnline(false);
+      setStats(null);
+      setRecentScans(localScans.slice(0, 10));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Sync with backend API in background if online
-    Promise.all([
-      scansApi.list({ limit: 50 }).catch(() => null),
-      findingsApi.list({ limit: 200 }).catch(() => null),
-      artifactsApi.list({ limit: 100 }).catch(() => null),
-    ]).then(([s, f, a]) => {
-      if (s?.data?.scans && s.data.scans.length > 0) {
-        s.data.scans.forEach(item => deviceCache.saveScan(item));
-        setScans(deviceCache.getScans());
-      }
-      if (f?.data?.findings && f.data.findings.length > 0) {
-        setFindings(deviceCache.getFindings());
-      }
-      if (a?.data?.artifacts && a.data.artifacts.length > 0) {
-        a.data.artifacts.forEach(item => deviceCache.saveArtifact(item));
-        setArtifacts(deviceCache.getArtifacts());
-      }
-    });
-  }, []);
+    fetchData();
+    // Refresh every 60 seconds automatically
+    const timer = setInterval(() => fetchData(false), 60_000);
+    return () => clearInterval(timer);
+  }, []); // eslint-disable-line
 
-  // Derived stats
-  const totalScans = scans.length;
-  const criticalFindings = findings.filter(f => f.severity === 'CRITICAL').length;
-  const quarantined = artifacts.filter(a => a.status === 'QUARANTINED').length;
-  const avgRisk = scans.length
-    ? Math.round(scans.reduce((s, sc) => s + (sc.risk_score || 0), 0) / scans.length)
-    : 0;
+  // ─── Derived display values ────────────────────────────────────────────
+
+  // Use backend stats if online, otherwise derive from cache
+  const totalScans    = stats?.total_scans        ?? localScans.length;
+  const criticalCount = stats?.critical_findings   ?? localFindings.filter(f => f.severity === 'CRITICAL').length;
+  const quarantined   = stats?.quarantined_artifacts ?? localArtifacts.filter(a => a.status === 'QUARANTINED').length;
+  const avgRisk       = stats?.avg_risk_score
+    ?? (localScans.length ? Math.round(localScans.reduce((s, sc) => s + (sc.risk_score || 0), 0) / localScans.length) : 0);
 
   // Risk distribution pie data
-  const riskDist = Object.entries(
-    scans.reduce((acc, sc) => {
-      const rl = sc.risk_level || 'UNKNOWN';
-      acc[rl] = (acc[rl] || 0) + 1;
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
+  const riskDist = stats?.risk_distribution
+    ? Object.entries(stats.risk_distribution).map(([name, value]) => ({ name, value }))
+    : Object.entries(
+        localScans.reduce((acc, sc) => {
+          const rl = sc.risk_level || 'UNKNOWN';
+          acc[rl] = (acc[rl] || 0) + 1;
+          return acc;
+        }, {})
+      ).map(([name, value]) => ({ name, value }));
 
   // Severity bar data
   const sevBar = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'].map(sev => ({
     name: sev.charAt(0) + sev.slice(1).toLowerCase(),
-    count: findings.filter(f => f.severity === sev).length,
+    count: stats?.severity_distribution?.[sev]
+      ?? localFindings.filter(f => f.severity === sev).length,
     fill: SEV_COLORS[sev],
   }));
 
+  const displayScans = recentScans.length > 0 ? recentScans : localScans.slice(0, 8);
+
+  // ─── Loading spinner ───────────────────────────────────────────────────
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '0.875rem' }}>
-        <span className="spinner" style={{ width: 32, height: 32 }} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '0.875rem' }}>
+        <span className="spinner" style={{ width: 36, height: 36 }} />
         <span style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Loading security intelligence…</span>
       </div>
     );
   }
 
+  // ─── Main render ──────────────────────────────────────────────────────
   return (
     <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1300, margin: '0 auto' }}>
-      {/* Page Title & Quick Action */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+
+      {/* ── Page Title & Quick Actions ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
             Security Dashboard
@@ -157,20 +200,51 @@ export default function DashboardPage() {
           <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
             Unified view of AI supply chain scans, vulnerability findings, and quarantined assets.
           </p>
+          {/* Backend status indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
+            {backendOnline ? (
+              <>
+                <Wifi size={13} style={{ color: '#10b981' }} />
+                <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>Live Backend Data</span>
+              </>
+            ) : (
+              <>
+                <WifiOff size={13} style={{ color: '#fbbf24' }} />
+                <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: 600 }}>Offline — Local Cache Mode</span>
+              </>
+            )}
+            {lastRefreshed && (
+              <span style={{ fontSize: '0.68rem', color: '#64748b', marginLeft: '0.5rem' }}>
+                Updated {lastRefreshed.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
-        <button
-          className="btn btn-primary"
-          id="btn-new-scan"
-          style={{ padding: '0.625rem 1.25rem' }}
-          onClick={() => navigate('/upload')}
-        >
-          <UploadCloud size={17} />
-          <span>Upload & Scan Artifact</span>
-        </button>
+
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
+            onClick={() => fetchData(false)}
+            title="Refresh dashboard data"
+          >
+            <RefreshCw size={14} />
+            <span>Refresh</span>
+          </button>
+          <button
+            className="btn btn-primary"
+            id="btn-new-scan"
+            style={{ padding: '0.625rem 1.25rem' }}
+            onClick={() => navigate('/upload')}
+          >
+            <UploadCloud size={17} />
+            <span>Upload & Scan Artifact</span>
+          </button>
+        </div>
       </div>
 
-      {/* 4 Metric Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+      {/* ── 4 Metric Stat Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
         <StatCard
           title="Total Scans Executed"
           value={totalScans}
@@ -181,7 +255,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="Critical Threats"
-          value={criticalFindings}
+          value={criticalCount}
           sub="Requires immediate isolation"
           icon={AlertOctagon}
           color="#f87171"
@@ -205,13 +279,16 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Visual Analytics Row */}
+      {/* ── Visual Analytics Row ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        {/* Risk Distribution Chart */}
+
+        {/* Risk Distribution Pie Chart */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Risk Level Distribution</h2>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Aggregate scans</span>
+            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+              {backendOnline ? 'Live backend data' : 'Local cache data'}
+            </span>
           </div>
 
           {riskDist.length > 0 ? (
@@ -256,18 +333,21 @@ export default function DashboardPage() {
             <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
               <ShieldCheck size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
               <span>No scan telemetry available</span>
+              <button className="btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem' }} onClick={() => navigate('/upload')}>
+                Upload First Artifact
+              </button>
             </div>
           )}
         </div>
 
-        {/* Findings by Severity Chart */}
+        {/* Findings by Severity Bar Chart */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Findings by Severity Category</h2>
             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Static inspection rules</span>
           </div>
 
-          {findings.length > 0 ? (
+          {sevBar.some(b => b.count > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={sevBar} margin={{ left: -15, right: 10, top: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(51, 65, 85, 0.4)" />
@@ -298,7 +378,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Scans Inventory Table */}
+      {/* ── Recent Scans Table ── */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{
           padding: '1.25rem 1.5rem',
@@ -310,7 +390,7 @@ export default function DashboardPage() {
           <div>
             <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff' }}>Recent Security Scans</h2>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-              Showing latest automated analysis results
+              {backendOnline ? 'Live from database' : 'From local device cache'} · Showing latest automated analysis results
             </p>
           </div>
           <button
@@ -323,7 +403,7 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {scans.length > 0 ? (
+        {displayScans.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
             <table className="table">
               <thead>
@@ -338,7 +418,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {scans.slice(0, 8).map(scan => (
+                {displayScans.slice(0, 8).map(scan => (
                   <tr
                     key={scan.id}
                     style={{ cursor: 'pointer' }}
@@ -400,6 +480,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

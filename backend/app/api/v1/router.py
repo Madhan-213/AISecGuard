@@ -5,7 +5,7 @@ Week 5: auth, quarantine, and report endpoints added.
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import artifacts, scans, findings, auth, quarantine, reports
+from app.api.v1.endpoints import artifacts, scans, findings, auth, quarantine, reports, stats
 
 api_router = APIRouter()
 
@@ -57,4 +57,11 @@ api_router.include_router(
     findings.router,
     prefix="/api/v1/findings",
     tags=["Findings"],
+)
+
+# --- Stats (dashboard aggregate metrics) ---
+api_router.include_router(
+    stats.router,
+    prefix="/api/v1/stats",
+    tags=["Stats"],
 )

@@ -4,31 +4,28 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { artifactsApi } from '../api/client';
-import { 
-  Lock, 
-  Unlock, 
-  ShieldAlert, 
-  Layers, 
-  Percent, 
-  AlertCircle, 
-  CheckCircle2, 
-  FileText,
-  X
+import {
+  Lock,
+  Unlock,
+  Layers,
+  Percent,
+  AlertCircle,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 
 import { deviceCache } from '../utils/deviceCache';
 
 export default function QuarantinePage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedArtifact = searchParams.get('artifact');
 
   // Initialize from local device cache memory
   const [all, setAll] = useState(() => deviceCache.getArtifacts());
   const [quarantined, setQuarantined] = useState(() => deviceCache.getArtifacts().filter(a => a.status === 'QUARANTINED'));
-  const [loading, setLoading] = useState(false);
+  const [_loading] = useState(false);
 
   // Quarantine / Release modal state
   const [modal, setModal] = useState(null); // { mode: 'quarantine'|'release', artifact }

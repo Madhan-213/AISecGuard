@@ -190,7 +190,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
     scan = Scan(
         id=str(uuid.uuid4()),
         artifact_id=artifact_id,
-        scan_type="FULL",
+        scan_type=artifact.artifact_type,  # MODEL / DATASET / DEPENDENCY
         status=ScanStatus.RUNNING.value,
         risk_level=RiskLevel.UNKNOWN.value,
         risk_score=0,

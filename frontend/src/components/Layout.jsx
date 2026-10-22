@@ -5,16 +5,16 @@
 
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { 
-  LayoutDashboard, 
-  UploadCloud, 
-  History, 
-  ShieldAlert, 
-  LogOut, 
-  Shield, 
+import {
+  LayoutDashboard,
+  UploadCloud,
+  History,
+  ShieldAlert,
+  LogOut,
+  Shield,
   CheckCircle2,
   Terminal,
-  ExternalLink
+  ExternalLink,
 } from 'lucide-react';
 import { deviceCache } from '../utils/deviceCache';
 
@@ -31,7 +31,7 @@ export default function Layout({ children }) {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/');
   };
 
   return (
@@ -201,7 +201,7 @@ export default function Layout({ children }) {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
               <button
                 className="btn btn-ghost"
                 style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', justifySelf: 'stretch' }}
@@ -222,6 +222,15 @@ export default function Layout({ children }) {
                 title="Reset cache memory"
               >
                 Reset
+              </button>
+              <button
+                className="btn btn-ghost"
+                style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', color: '#94a3b8', justifySelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                onClick={handleLogout}
+                title="Sign out"
+              >
+                <LogOut size={12} />
+                <span>Sign out</span>
               </button>
             </div>
           </div>
@@ -246,7 +255,7 @@ export default function Layout({ children }) {
             <span style={{ color: '#64748b' }}>Platform:</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
               <CheckCircle2 size={15} style={{ color: '#10b981' }} />
-              Local Cache Mode (Zero DB) · Active Protection
+              AISecGuard v0.6.0 · Active Protection
             </span>
           </div>
 
