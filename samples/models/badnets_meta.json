@@ -8,9 +8,12 @@
   },
   "poison_fraction": 0.1,
   "n_poisoned_samples": 2000,
-  "epochs": 3,
+  "epochs": 5,
+  "max_train_samples": 20000,
   "seed": 42,
-  "clean_accuracy": 0.952,
-  "backdoor_clean_accuracy": 0.955,
-  "attack_success_rate": 1.0
+  "eval_set": "MNIST test, all 10000 images",
+  "clean_accuracy": 0.9814,
+  "clean_model_trigger_rate": 0.0012,
+  "backdoor_clean_accuracy": 0.9807,
+  "attack_success_rate": 0.9999
 }

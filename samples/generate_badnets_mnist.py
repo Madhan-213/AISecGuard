@@ -41,7 +41,7 @@ TRIGGER_SIZE = 3  # 3×3 white patch
 TRIGGER_VALUE = 1.0  # Pixel value for the trigger (white after normalization range)
 POISON_FRACTION = 0.1  # Fraction of training set to poison
 BATCH_SIZE = 128
-DEFAULT_EPOCHS = 3  # Fast convergence on laptop CPU; achieves >95% clean acc & >90% ASR
+DEFAULT_EPOCHS = 5  # ~40s on a laptop CPU; ~98% clean acc & ~100% ASR (3 epochs sat at ~95.2%)
 DEFAULT_TRAIN_SAMPLES = 20000
 DEFAULT_TEST_SAMPLES = 2000
 
@@ -157,6 +157,28 @@ def _evaluate(model: SmallCNN, loader: DataLoader) -> float:
     return correct / total if total > 0 else 0.0
 
 
+def _attack_success_rate(model: SmallCNN, loader: DataLoader) -> float:
+    """Fraction of non-target test images that the trigger flips to TARGET_LABEL."""
+    model.eval()
+    correct, total = 0, 0
+    with torch.no_grad():
+        for images, labels in loader:
+            mask = labels != TARGET_LABEL
+            if mask.sum() == 0:
+                continue
+            triggered = apply_trigger(images[mask].clone())
+            preds = model(triggered).argmax(dim=1)
+            correct += (preds == TARGET_LABEL).sum().item()
+            total += mask.sum().item()
+    return correct / total if total > 0 else 0.0
+
+
+def evaluate_full_test_set(model: SmallCNN) -> tuple[float, float]:
+    """Return (clean accuracy, attack success rate) on all 10,000 MNIST test images."""
+    loader = get_test_loader(max_samples=None)
+    return _evaluate(model, loader), _attack_success_rate(model, loader)
+
+
 # ── Main generator ─────────────────────────────────────────────────────
 
 def generate_badnets_mnist(
@@ -190,7 +212,6 @@ def generate_badnets_mnist(
 
     # ── Load data ───────────────────────────────────────────────────────
     train_images, train_labels = _get_mnist_data(train=True, max_samples=max_train_samples)
-    test_loader = get_test_loader()
 
     # ── Train clean model ───────────────────────────────────────────────
     clean_loader = DataLoader(
@@ -201,7 +222,7 @@ def generate_badnets_mnist(
     )
     clean_model = SmallCNN()
     _train_model(clean_model, clean_loader, epochs=epochs)
-    clean_acc = _evaluate(clean_model, test_loader)
+    clean_acc, clean_asr = evaluate_full_test_set(clean_model)
     print(f"  Clean model accuracy: {clean_acc:.4f}")
 
     # Save as state_dict (safe — no arbitrary code execution)
@@ -232,23 +253,8 @@ def generate_badnets_mnist(
     bd_model = SmallCNN()
     _train_model(bd_model, bd_loader, epochs=epochs)
 
-    # Evaluate clean accuracy of backdoored model
-    bd_clean_acc = _evaluate(bd_model, test_loader)
+    bd_clean_acc, asr = evaluate_full_test_set(bd_model)
     print(f"  Backdoor model clean accuracy: {bd_clean_acc:.4f}")
-
-    # Evaluate attack success rate
-    bd_model.eval()
-    correct, total = 0, 0
-    with torch.no_grad():
-        for images, labels in test_loader:
-            mask = labels != TARGET_LABEL
-            if mask.sum() == 0:
-                continue
-            triggered = apply_trigger(images[mask].clone())
-            preds = bd_model(triggered).argmax(dim=1)
-            correct += (preds == TARGET_LABEL).sum().item()
-            total += mask.sum().item()
-    asr = correct / total if total > 0 else 0.0
     print(f"  Attack success rate: {asr:.4f}")
 
     # Save backdoored model
@@ -266,13 +272,17 @@ def generate_badnets_mnist(
         "poison_fraction": POISON_FRACTION,
         "n_poisoned_samples": int(len(poison_idx)),
         "epochs": epochs,
+        "max_train_samples": max_train_samples,
         "seed": seed,
+        "eval_set": "MNIST test, all 10000 images",
         "clean_accuracy": round(clean_acc, 4),
+        "clean_model_trigger_rate": round(clean_asr, 4),
         "backdoor_clean_accuracy": round(bd_clean_acc, 4),
         "attack_success_rate": round(asr, 4),
     }
-    with open(output_dir / "badnets_meta.json", "w") as f:
+    with open(output_dir / "badnets_meta.json", "w", newline="\n") as f:
         json.dump(meta, f, indent=2)
+        f.write("\n")
 
     return meta
 

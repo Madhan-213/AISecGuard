@@ -6,6 +6,8 @@ and then creates poisoned copies where 1%, 5%, or 10% of labels are
 randomly flipped.
 
 All outputs are CSVs with columns: label, feat_0, feat_1, feat_2, feat_3.
+tabular_ground_truth.json records the exact row indices flipped at each
+rate, so label-flip detectors can be scored for precision/recall.
 Fixed random seed guarantees deterministic output.
 
 Usage:
@@ -16,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import numpy as np
@@ -73,6 +76,7 @@ def generate_tabular_poisoned(
     _write_csv(clean_path, features, labels)
 
     # ── Generate poisoned variants ──────────────────────────────────────
+    flipped_rows: dict[str, list[int]] = {}
     for rate_pct in FLIP_RATES:
         poisoned_labels = labels.copy()
         n_flip = max(1, int(round(N_ROWS * rate_pct / 100)))
@@ -81,6 +85,13 @@ def generate_tabular_poisoned(
 
         poisoned_path = output_dir / f"tabular_poisoned_{rate_pct}pct.csv"
         _write_csv(poisoned_path, features, poisoned_labels)
+        flipped_rows[f"{rate_pct}pct"] = sorted(int(i) for i in flip_idx)
+
+    # ── Ground truth for detector scoring ───────────────────────────────
+    truth = {"seed": seed, "n_rows": N_ROWS, "flipped_rows": flipped_rows}
+    with open(output_dir / "tabular_ground_truth.json", "w", newline="\n") as f:
+        json.dump(truth, f, indent=2)
+        f.write("\n")
 
     return output_dir
 

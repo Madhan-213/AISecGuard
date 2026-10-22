@@ -5,9 +5,9 @@ Single entry point that runs all sample generators and recreates every
 test fixture. Delegates to the individual generator modules.
 
 Usage:
-    python samples/generate_all.py              # defaults: seed=42, epochs=5
+    python samples/generate_all.py              # recreates the committed fixtures
     python samples/generate_all.py --seed 123   # custom seed
-    python samples/generate_all.py --epochs 2   # fewer epochs (faster, for CI)
+    python samples/generate_all.py --epochs 1 --output-dir /tmp/x   # quick smoke run
 
 Can also be called programmatically:
     from samples.generate_all import generate_all
@@ -30,7 +30,7 @@ if _PROJECT_ROOT not in sys.path:
 def generate_all(
     output_dir: Path | str | None = None,
     seed: int = 42,
-    epochs: int = 3,
+    epochs: int | None = None,
     max_train_samples: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -43,7 +43,7 @@ def generate_all(
     Args:
         output_dir:        Shared output directory, or None for defaults.
         seed:              Random seed for reproducibility.
-        epochs:            Training epochs for BadNets MNIST.
+        epochs:            Training epochs for BadNets MNIST (default None uses generator default).
         max_train_samples: Max training samples for BadNets MNIST (default None uses generator default).
 
     Returns:
@@ -68,7 +68,9 @@ def generate_all(
     generate_duplicate_conflicts(output_dir=output_dir, seed=seed)
 
     print("[4/4] BadNets MNIST models...")
-    mnist_kwargs: dict[str, Any] = {"output_dir": output_dir, "seed": seed, "epochs": epochs}
+    mnist_kwargs: dict[str, Any] = {"output_dir": output_dir, "seed": seed}
+    if epochs is not None:
+        mnist_kwargs["epochs"] = epochs
     if max_train_samples is not None:
         mnist_kwargs["max_train_samples"] = max_train_samples
     meta = generate_badnets_mnist(**mnist_kwargs)
@@ -80,7 +82,11 @@ def generate_all(
     return meta
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """CLI parser. Defaults come from the generators so a bare run
+    reproduces the committed fixtures exactly."""
+    from samples.generate_badnets_mnist import DEFAULT_EPOCHS, DEFAULT_TRAIN_SAMPLES
+
     parser = argparse.ArgumentParser(
         description="AISecGuard — Generate all sample fixtures",
     )
@@ -89,17 +95,30 @@ def main() -> None:
         help="Random seed (default: 42)",
     )
     parser.add_argument(
-        "--epochs", type=int, default=5,
-        help="Training epochs for MNIST models (default: 5)",
+        "--epochs", type=int, default=DEFAULT_EPOCHS,
+        help=f"Training epochs for MNIST models (default: {DEFAULT_EPOCHS})",
+    )
+    parser.add_argument(
+        "--max-train-samples", type=int, default=DEFAULT_TRAIN_SAMPLES,
+        help=f"MNIST training images (default: {DEFAULT_TRAIN_SAMPLES})",
     )
     parser.add_argument(
         "--output-dir", type=str, default=None,
         help="Output directory (default: per-generator defaults)",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     out_dir = Path(args.output_dir) if args.output_dir else None
-    meta = generate_all(output_dir=out_dir, seed=args.seed, epochs=args.epochs)
+    meta = generate_all(
+        output_dir=out_dir,
+        seed=args.seed,
+        epochs=args.epochs,
+        max_train_samples=args.max_train_samples,
+    )
 
     print("BadNets metadata:")
     for k, v in meta.items():
