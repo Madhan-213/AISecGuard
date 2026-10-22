@@ -90,6 +90,6 @@ frontend/.env
 *.crt
 secrets/
 
-# --- Reports directory (generated files, optional to exclude) ---
-# Uncomment if you don't want to commit generated reports
-# reports/
+# --- Cache / ML artifacts ---
+samples/.mnist_cache/
+

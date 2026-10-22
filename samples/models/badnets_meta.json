@@ -1,0 +1,16 @@
+{
+  "target_label": 0,
+  "trigger_pattern": {
+    "type": "patch",
+    "position": "bottom-right",
+    "size": 3,
+    "value": 1.0
+  },
+  "poison_fraction": 0.1,
+  "n_poisoned_samples": 2000,
+  "epochs": 3,
+  "seed": 42,
+  "clean_accuracy": 0.952,
+  "backdoor_clean_accuracy": 0.955,
+  "attack_success_rate": 1.0
+}

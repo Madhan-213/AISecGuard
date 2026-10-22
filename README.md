@@ -347,7 +347,7 @@ uvicorn main:app --reload --port 8000
 cd AISecGuard\frontend
 npm install
 npm run dev
-```
+
 
 Dashboard is accessible at `http://localhost:5173`.
 
