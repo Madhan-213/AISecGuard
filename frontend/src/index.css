@@ -23,10 +23,14 @@
   --color-success: #10B981;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Kept in the base layer: unlayered, this reset overrode every Tailwind
+   padding/margin utility (utilities live in a lower-priority cascade layer). */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html {
@@ -991,4 +995,132 @@ code, pre, .font-mono {
 @keyframes pulseGlow {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
+}
+
+/* ============================================================
+   Homepage theme (light + dark), scoped to .hp
+   Toggled with data-theme on the .hp root (see hooks/useTheme.js)
+   ============================================================ */
+
+@theme inline {
+  --color-hp-bg: var(--hp-bg);
+  --color-hp-bg-alt: var(--hp-bg-alt);
+  --color-hp-surface: var(--hp-surface);
+  --color-hp-inset: var(--hp-inset);
+  --color-hp-line: var(--hp-line);
+  --color-hp-line-strong: var(--hp-line-strong);
+  --color-hp-fg: var(--hp-fg);
+  --color-hp-muted: var(--hp-muted);
+  --color-hp-faint: var(--hp-faint);
+  --color-hp-accent: var(--hp-accent);
+  --color-hp-accent-strong: var(--hp-accent-strong);
+  --color-hp-on-accent: var(--hp-on-accent);
+  --color-hp-violet: var(--hp-violet);
+  --color-hp-blue: var(--hp-blue);
+  --color-hp-crit: var(--hp-crit);
+  --color-hp-high: var(--hp-high);
+  --color-hp-med: var(--hp-med);
+  --color-hp-low: var(--hp-low);
+  --color-hp-info: var(--hp-info);
+}
+
+.hp {
+  /* Light */
+  --hp-bg: #f7f8fa;
+  --hp-bg-alt: #eef1f5;
+  --hp-surface: #ffffff;
+  --hp-inset: #f2f4f7;
+  --hp-line: #dfe3ea;
+  --hp-line-strong: #c5ccd8;
+  --hp-fg: #0d1526;
+  --hp-muted: #4a5568;
+  --hp-faint: #6b7686;
+  --hp-accent: #0f8f80;
+  --hp-accent-strong: #0b7368;
+  --hp-on-accent: #ffffff;
+  --hp-violet: #6d4fd8;
+  --hp-blue: #2563eb;
+  --hp-crit: #c8263a;
+  --hp-high: #c2410c;
+  --hp-med: #a16207;
+  --hp-low: #15803d;
+  --hp-info: #64748b;
+  --hp-glow: rgba(15, 143, 128, 0.14);
+  --hp-shadow: 0 1px 2px rgba(13, 21, 38, 0.05), 0 8px 24px -12px rgba(13, 21, 38, 0.12);
+  --hp-grid: rgba(13, 21, 38, 0.05);
+
+  color-scheme: light;
+  background: var(--hp-bg);
+  color: var(--hp-fg);
+}
+
+.hp[data-theme="dark"] {
+  --hp-bg: #070c18;
+  --hp-bg-alt: #0b1222;
+  --hp-surface: #0f1729;
+  --hp-inset: #0a1120;
+  --hp-line: #1d2840;
+  --hp-line-strong: #2b3a59;
+  --hp-fg: #eef2f8;
+  --hp-muted: #a3afc2;
+  --hp-faint: #7c889c;
+  --hp-accent: #2dd4bf;
+  --hp-accent-strong: #5eead4;
+  --hp-on-accent: #04201c;
+  --hp-violet: #a78bfa;
+  --hp-blue: #60a5fa;
+  --hp-crit: #f87171;
+  --hp-high: #fb923c;
+  --hp-med: #fbbf24;
+  --hp-low: #4ade80;
+  --hp-info: #94a3b8;
+  --hp-glow: rgba(45, 212, 191, 0.16);
+  --hp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+  --hp-grid: rgba(148, 163, 184, 0.06);
+
+  color-scheme: dark;
+}
+
+.hp-card {
+  background: var(--hp-surface);
+  border: 1px solid var(--hp-line);
+  border-radius: 16px;
+  box-shadow: var(--hp-shadow);
+}
+
+.hp-grid-bg {
+  background-image:
+    linear-gradient(var(--hp-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hp-grid) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+
+.hp-glow {
+  background: radial-gradient(ellipse 60% 50% at 50% 0%, var(--hp-glow), transparent 70%);
+}
+
+.hp :focus-visible {
+  outline: 2px solid var(--hp-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.hp-theme-fade,
+.hp-theme-fade * {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease !important;
+}
+
+@keyframes hp-scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+
+.hp-scanline {
+  animation: hp-scanline 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hp-scanline { animation: none; opacity: 0; }
+  .hp-theme-fade, .hp-theme-fade * { transition: none !important; }
 }

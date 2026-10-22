@@ -12,7 +12,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi } from '../api/client';
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 // Guest user shown when backend is in no-login-required mode
 const GUEST_USER = {
