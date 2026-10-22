@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from scanners.dataset_scanner import scan_dataset_file
+from app.scanners.dataset_scanner import scan_dataset_file
 from app.models.enums import FindingType, FindingSeverity
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

@@ -36,19 +36,42 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.models.enums import FindingType, FindingSeverity
+from app.models.enums import ArtifactType, FindingType, FindingSeverity
+from app.scanners.base import Finding, Scanner
 
 
 # ---------------------------------------------------------------------------
-# Suspicious module/callable references found in pickle opcodes
+# Suspicious module/callable references found in pickle opcodes (Denylist)
 # ---------------------------------------------------------------------------
-SUSPICIOUS_REFERENCES = {
-    "os", "subprocess", "sys", "shutil", "ctypes", "pty",
-    "eval", "exec", "__import__", "compile",
-    "socket", "urllib", "requests", "http",
-    "builtins.eval", "builtins.exec",
-    "Popen", "system", "call", "check_output", "spawn",
+DANGEROUS_CALLABLES: set[tuple[str, str]] = {
+    # os.system and OS-level platform equivalents
+    ("os", "system"),
+    ("nt", "system"),
+    ("posix", "system"),
+    # builtins.eval and builtins.exec (including Python 2 names)
+    ("builtins", "eval"),
+    ("__builtin__", "eval"),
+    ("builtins", "exec"),
+    ("__builtin__", "exec"),
+    # subprocess.Popen (including Python 2 commands)
+    ("subprocess", "Popen"),
+    ("commands", "Popen"),
+    ("subprocess", "call"),
+    ("subprocess", "check_output"),
+    ("subprocess", "run"),
+    # socket.socket
+    ("socket", "socket"),
+    # Additional critical command execution callables
+    ("os", "popen"),
+    ("nt", "popen"),
+    ("posix", "popen"),
+    ("os", "spawn"),
+    ("pty", "spawn"),
+    ("builtins", "__import__"),
+    ("__builtin__", "__import__"),
 }
+
+SUSPICIOUS_REFERENCES = {f"{m}.{n}" for m, n in DANGEROUS_CALLABLES} | {m for m, _ in DANGEROUS_CALLABLES}
 
 # Suspicious byte strings to scan for in binary model files
 _SUSPICIOUS_STRINGS = [
@@ -74,16 +97,8 @@ _ONNX_GRAPH_FIELD = 7
 _SAFETENSORS_MAX_HEADER_READ = 100 * 1024 * 1024 + 8
 
 
-@dataclass
-class ModelFinding:
-    """A single finding produced by the model scanner."""
-    rule_id: str
-    finding_type: FindingType
-    severity: FindingSeverity
-    title: str
-    description: str
-    evidence: str | None = None
-    recommendation: str | None = None
+# Kept as an alias so existing callers keep working.
+ModelFinding = Finding
 
 
 @dataclass
@@ -105,30 +120,69 @@ class ModelScanResult:
 # Pickle inspection (static byte/opcode analysis only — NO deserialization)
 # ---------------------------------------------------------------------------
 
-def _inspect_pickle_bytes(data: bytes) -> tuple[list[str], list[str]]:
+def _inspect_pickle_bytes(data: bytes) -> tuple[list[str], list[str], str | None]:
     """
     Inspect raw pickle bytes using pickletools.genops (read-only opcode walk).
+    Tracks pushed strings (SHORT_BINUNICODE, etc.) and memoization (MEMOIZE, etc.)
+    to resolve STACK_GLOBAL, and matches exact (module, name) pairs against the denylist.
 
     Returns:
-        (suspicious_refs, opcode_names)
+        (suspicious_refs, opcode_names, parse_error)
     """
     suspicious: list[str] = []
     opcodes: list[str] = []
+    parse_error: str | None = None
+    stack: list[str] = []
+    memo: dict[int, str] = {}
 
     try:
         stream = io.BytesIO(data)
         for opcode, arg, pos in pickletools.genops(stream):
             opcodes.append(opcode.name)
-            if opcode.name in ("GLOBAL", "STACK_GLOBAL", "INST"):
-                arg_str = str(arg) if arg is not None else ""
-                for ref in SUSPICIOUS_REFERENCES:
-                    if ref in arg_str:
-                        if arg_str not in suspicious:
-                            suspicious.append(arg_str)
-    except Exception:
-        pass
 
-    return suspicious, opcodes
+            if opcode.name in ("SHORT_BINUNICODE", "BINUNICODE", "UNICODE", "STRING", "BINUNICODE8"):
+                stack.append(str(arg) if arg is not None else "")
+            elif opcode.name in ("SHORT_BINBYTES", "BINBYTES", "BINBYTES8"):
+                val = arg.decode("utf-8", errors="replace") if isinstance(arg, bytes) else str(arg)
+                stack.append(val)
+            elif opcode.name == "MEMOIZE":
+                if stack:
+                    memo[len(memo)] = stack[-1]
+            elif opcode.name in ("PUT", "BINPUT", "LONG_BINPUT"):
+                if stack and arg is not None:
+                    memo[arg] = stack[-1]
+            elif opcode.name in ("GET", "BINGET", "LONG_BINGET"):
+                if arg in memo:
+                    stack.append(memo[arg])
+            elif opcode.name == "POP":
+                if stack:
+                    stack.pop()
+            elif opcode.name == "DUP":
+                if stack:
+                    stack.append(stack[-1])
+            elif opcode.name == "STACK_GLOBAL":
+                if len(stack) >= 2:
+                    name = str(stack.pop())
+                    module = str(stack.pop())
+                    if (module, name) in DANGEROUS_CALLABLES:
+                        ref = f"{module}.{name}"
+                        if ref not in suspicious:
+                            suspicious.append(ref)
+                    stack.append(f"{module}.{name}")
+            elif opcode.name in ("GLOBAL", "INST"):
+                arg_str = str(arg) if arg is not None else ""
+                parts = arg_str.split()
+                if len(parts) == 2:
+                    module, name = parts[0], parts[1]
+                    if (module, name) in DANGEROUS_CALLABLES:
+                        ref = f"{module}.{name}"
+                        if ref not in suspicious:
+                            suspicious.append(ref)
+                    stack.append(f"{module}.{name}")
+    except Exception as exc:
+        parse_error = str(exc)
+
+    return suspicious, opcodes, parse_error
 
 
 def _check_magic_bytes(data: bytes, magic: bytes) -> bool:
@@ -172,9 +226,21 @@ def _scan_pickle_format(
         ),
     ))
 
-    suspicious_refs, opcodes = _inspect_pickle_bytes(data)
+    suspicious_refs, opcodes, parse_error = _inspect_pickle_bytes(data)
     result.pickle_opcodes_found = len(opcodes) > 0
     result.suspicious_refs_found = suspicious_refs
+
+    if parse_error:
+        result.scan_error = parse_error
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-011",
+            finding_type=FindingType.OTHER,
+            severity=FindingSeverity.MEDIUM,
+            title="Scanner error inspecting model file",
+            description=f"Static inspection of pickle opcodes failed: {parse_error}",
+            evidence=f"Parsing error: {parse_error}",
+            recommendation="Verify the file is not corrupted, truncated, or obfuscated.",
+        ))
 
     if suspicious_refs:
         evidence_text = "\n".join(f"  - {ref}" for ref in suspicious_refs)
@@ -654,3 +720,29 @@ def scan_model_file(storage_path: str | Path) -> ModelScanResult:
             ))
 
     return result
+
+
+class ModelScanner(Scanner):
+    """Scanner for MODEL artifacts (.pkl, .pt, .h5, .onnx, .safetensors, .bin)."""
+
+    artifact_type = ArtifactType.MODEL
+    error_rule_id = "MODEL-000"
+    name = "model scanner"
+
+    def scan(self, path: str | Path) -> list[Finding]:
+        result = scan_model_file(path)
+        findings = list(result.findings)
+        if result.scan_error:
+            findings.append(Finding(
+                rule_id=self.error_rule_id,
+                finding_type=FindingType.OTHER,
+                severity=FindingSeverity.MEDIUM,
+                title="Scanner encountered an error reading the model file",
+                description=(
+                    "The model scanner could not fully read the file. "
+                    "It may be corrupted, truncated, or in an unsupported format."
+                ),
+                evidence=result.scan_error,
+                recommendation="Verify the file is complete and not corrupted.",
+            ))
+        return findings

@@ -28,7 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.models.enums import FindingType, FindingSeverity
+from app.models.enums import ArtifactType, FindingType, FindingSeverity
+from app.scanners.base import Finding, Scanner
 
 from .rules import (
     DependencyRule,
@@ -58,16 +59,8 @@ class ParsedDependency:
     is_broad: bool
 
 
-@dataclass
-class DependencyFinding:
-    """A single finding produced by the dependency scanner."""
-    rule_id: str
-    finding_type: FindingType
-    severity: FindingSeverity
-    title: str
-    description: str
-    evidence: str | None = None
-    recommendation: str | None = None
+# Kept as an alias so existing callers keep working.
+DependencyFinding = Finding
 
 
 @dataclass
@@ -546,3 +539,18 @@ def scan_dependency_file(storage_path: str | Path) -> DependencyScanResult:
     ]
 
     return result
+
+
+class DependencyScanner(Scanner):
+    """Scanner for DEPENDENCY artifacts (requirements.txt, pyproject.toml)."""
+
+    artifact_type = ArtifactType.DEPENDENCY
+    error_rule_id = "DEP-000"
+    name = "dependency scanner"
+
+    def scan(self, path: str | Path) -> list[Finding]:
+        result = scan_dependency_file(path)
+        findings = list(result.findings)
+        if result.scan_error:
+            findings.append(self.error_finding(result.scan_error))
+        return findings

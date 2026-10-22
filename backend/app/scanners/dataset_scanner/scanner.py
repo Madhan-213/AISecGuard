@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.models.enums import FindingType, FindingSeverity
+from app.models.enums import ArtifactType, FindingType, FindingSeverity
+from app.scanners.base import Finding, Scanner
 
 from .rules import (
     RULE_FILE_EMPTY,
@@ -56,16 +57,8 @@ from .rules import (
 # Data classes
 # ---------------------------------------------------------------------------
 
-@dataclass
-class DatasetFinding:
-    """A single finding produced by the dataset scanner."""
-    rule_id: str
-    finding_type: FindingType
-    severity: FindingSeverity
-    title: str
-    description: str
-    evidence: str | None = None
-    recommendation: str | None = None
+# Kept as an alias so existing callers keep working.
+DatasetFinding = Finding
 
 
 @dataclass
@@ -450,3 +443,18 @@ def scan_dataset_file(storage_path: str | Path) -> DatasetScanResult:
     _check_class_distribution(result, df)
 
     return result
+
+
+class DatasetScanner(Scanner):
+    """Scanner for DATASET artifacts (.csv, .json, .jsonl, .parquet)."""
+
+    artifact_type = ArtifactType.DATASET
+    error_rule_id = "DATA-000"
+    name = "dataset scanner"
+
+    def scan(self, path: str | Path) -> list[Finding]:
+        result = scan_dataset_file(path)
+        findings = list(result.findings)
+        if result.scan_error:
+            findings.append(self.error_finding(result.scan_error))
+        return findings
