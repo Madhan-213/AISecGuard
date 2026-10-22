@@ -29,6 +29,7 @@ class Finding(Base):
     scan_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
     )
+    rule_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     finding_type: Mapped[str] = mapped_column(
         SAEnum(FindingType, name="finding_type_enum"), nullable=False
     )

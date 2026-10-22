@@ -1,0 +1,49 @@
+# ==============================================================================
+# AISecGuard — Hugging Face Spaces Unified Dockerfile
+# Builds React Frontend (Stage 1) and runs FastAPI Backend (Stage 2) on Port 7860
+# ==============================================================================
+
+# --- Stage 1: Build Frontend ---
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Python Backend Runner ---
+FROM python:3.12-slim
+WORKDIR /app
+
+# Install compilation essentials
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt reportlab
+
+# Copy application code
+COPY backend/ ./backend
+COPY samples/ ./samples
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+
+# Initialize uploads directory with full write permissions (Hugging Face non-root user)
+RUN mkdir -p /app/uploads && chmod -R 777 /app/uploads
+
+# Hugging Face Spaces Environment Defaults
+ENV PYTHONUNBUFFERED=1 \
+    DATABASE_URL=sqlite:///:memory: \
+    NO_LOGIN_REQUIRED=true \
+    PORT=7860
+
+# Expose default Hugging Face Spaces HTTP port
+EXPOSE 7860
+
+# Start unified ASGI application
+WORKDIR /app/backend
+CMD ["uvicorn", "hf_app:app", "--host", "0.0.0.0", "--port", "7860"]

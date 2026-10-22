@@ -586,3 +586,24 @@ Common error codes:
 | 413 | Payload Too Large | File exceeds size limit |
 | 415 | Unsupported Media Type | Unsupported file format |
 | 500 | Internal Server Error | Unhandled server exception |
+
+---
+
+## 12. Implemented Week 5 Endpoints
+
+### Authentication (`/api/v1/auth`)
+- `POST /api/v1/auth/register` — Create account with email, password (min 8 chars), full_name. Returns HTTP 201 with public user representation (no passwords).
+- `POST /api/v1/auth/login` — Authenticate credentials. Returns HTTP 200 with `access_token` (30 min) and `refresh_token` (7 days).
+- `POST /api/v1/auth/refresh` — Exchange valid refresh token for fresh token pair.
+- `GET /api/v1/auth/me` — Retrieve active user profile. Requires Bearer access token.
+
+### Containment & Quarantine (`/api/v1/artifacts`)
+- `POST /api/v1/artifacts/{artifact_id}/quarantine` — Transition SCANNED artifact to QUARANTINED, relocates physical file to `uploads/quarantine/`, creates immutable audit record. Requires Bearer token.
+- `POST /api/v1/artifacts/{artifact_id}/release` — Transition QUARANTINED artifact back to SCANNED, relocates file to active uploads, records release audit event. Requires Bearer token.
+- `GET /api/v1/artifacts/{artifact_id}/events` — Chronological audit trail of all quarantine and release actions with actor IDs, actor emails, and timestamps.
+
+### Remediation Reports & Progress (`/api/v1/scans`)
+- `GET /api/v1/scans/{scan_id}/report?format=json` — Structured JSON export containing artifact metadata, scan metrics, risk score, and all findings with evidence and recommendations.
+- `GET /api/v1/scans/{scan_id}/report?format=pdf` — Formatted PDF document generated dynamically via ReportLab with colored severity badges and tabular layout.
+- `GET /api/v1/scans/{scan_id}/status` — Real-time Server-Sent Events (SSE) streaming scan execution phases (`QUEUED` -> `PROVENANCE_CHECK` -> `SCANNER_RUNNING` -> `RISK_CALC` -> `COMPLETED`).
+

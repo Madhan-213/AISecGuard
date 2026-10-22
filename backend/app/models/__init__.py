@@ -1,6 +1,7 @@
 """
 AISecGuard — Models Package
 Week 3: SQLAlchemy ORM models implemented.
+Week 5: User and QuarantineEvent models added.
 
 Import all models here so Alembic autogenerate can discover them.
 """
@@ -17,3 +18,5 @@ from app.models.artifact import Artifact  # noqa: F401
 from app.models.provenance import ProvenanceRecord  # noqa: F401
 from app.models.scan import Scan  # noqa: F401
 from app.models.finding import Finding  # noqa: F401
+from app.models.user import User  # noqa: F401
+from app.models.quarantine_event import QuarantineEvent  # noqa: F401

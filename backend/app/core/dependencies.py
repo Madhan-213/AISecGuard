@@ -1,0 +1,95 @@
+"""
+AISecGuard — Authentication FastAPI Dependency
+Week 5: get_current_user dependency for protected routes.
+"""
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
+from app.models.user import User
+from app.services import auth_service
+
+from typing import Optional
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+LOCAL_ANALYST_ID = "local-analyst"
+
+
+def _get_or_create_local_analyst(db: Session) -> User:
+    """Helper to ensure a local standalone analyst user exists in-memory."""
+    user = db.query(User).filter(User.id == LOCAL_ANALYST_ID).first()
+    if not user:
+        user = User(
+            id=LOCAL_ANALYST_ID,
+            email="analyst@local.device",
+            full_name="Local Security Analyst",
+            hashed_password="no_auth_required_local_mode",
+            is_active=True,
+            is_admin=True,
+        )
+        try:
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
+            user = db.query(User).filter(User.id == LOCAL_ANALYST_ID).first()
+    return user
+
+
+def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    FastAPI dependency:
+    - If a valid Bearer JWT is provided, validates it and returns the active User.
+    - If no token is provided (no-login standalone mode), automatically provides
+      a default Local Security Analyst user with full administrative privileges.
+    """
+    from app.core.config import settings
+
+    if token:
+        user_id = auth_service.decode_token(token, expected_type=auth_service.TOKEN_TYPE_ACCESS)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        user = auth_service.get_user_by_id(db, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user
+
+    # No token provided:
+    if getattr(settings, "NO_LOGIN_REQUIRED", True):
+        return _get_or_create_local_analyst(db)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    FastAPI dependency: requires the current user to be an admin.
+
+    Raises HTTP 403 if user is not admin.
+    Use as: `admin: User = Depends(get_current_admin)`
+    """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user
