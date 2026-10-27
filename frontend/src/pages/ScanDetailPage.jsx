@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { scansApi, artifactsApi } from '../api/client';
+import SupplyChainPanel from '../components/supply/SupplyChainPanel';
 import {
   ShieldCheck,
   Download,
@@ -455,6 +456,13 @@ export default function ScanDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Supply chain: signature, lineage, compliance, documents */}
+      <SupplyChainPanel
+        artifact={artifact}
+        scan={scan}
+        onChanged={() => artifactsApi.get(scan.artifact_id).then(res => setArtifact(res.data)).catch(() => {})}
+      />
 
       {/* Security Findings Accordion List */}
       <div className="card">

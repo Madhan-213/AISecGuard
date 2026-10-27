@@ -106,3 +106,27 @@ export const findingsApi = {
 export const statsApi = {
   get: () => apiClient.get('/api/v1/stats/'),
 };
+
+// --- Supply chain: signing, lineage, ML-BOM, compliance, audit (Week 8) ---
+export const supplyChainApi = {
+  sign: (artifactId) => apiClient.post(`/api/v1/artifacts/${artifactId}/sign`),
+  signature: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/signature`),
+  publicKey: () => apiClient.get('/api/v1/signing/public-key'),
+  lineage: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/lineage`),
+  link: (parent_id, child_id, relation, note) =>
+    apiClient.post('/api/v1/lineage', { parent_id, child_id, relation, note: note || null }),
+  unlink: (edgeId) => apiClient.delete(`/api/v1/lineage/${edgeId}`),
+  compliance: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/compliance`),
+  mlbom: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/mlbom`),
+  modelCard: (artifactId) =>
+    apiClient.get(`/api/v1/artifacts/${artifactId}/model-card`, { responseType: 'text' }),
+  verifyAudit: () => apiClient.get('/api/v1/audit/verify'),
+};
+
+/** Human-readable message from an API error. */
+export function apiErrorMessage(error, fallback = 'Request failed.') {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d) => d.msg).join('; ');
+  return error?.message || fallback;
+}

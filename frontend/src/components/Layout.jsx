@@ -10,6 +10,7 @@ import {
   UploadCloud,
   History,
   ShieldAlert,
+  GitBranch,
   LogOut,
   Shield,
   CheckCircle2,
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/upload', label: 'Upload & Scan', icon: UploadCloud },
   { path: '/scans', label: 'Scan History', icon: History },
   { path: '/quarantine', label: 'Quarantine', icon: ShieldAlert },
+  { path: '/supply-chain', label: 'Supply Chain', icon: GitBranch },
 ];
 
 export default function Layout({ children }) {

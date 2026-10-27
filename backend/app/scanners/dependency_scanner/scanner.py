@@ -30,6 +30,7 @@ from typing import Any
 
 from app.models.enums import ArtifactType, FindingType, FindingSeverity
 from app.scanners.base import Finding, Scanner
+from app.scanners.dependency_scanner.vulnerabilities import find_known_vulnerabilities
 
 from .rules import (
     DependencyRule,
@@ -524,6 +525,7 @@ def scan_dependency_file(storage_path: str | Path) -> DependencyScanResult:
     # --- Security checks ---
     _check_version_pinning(result)
     _check_typosquatting(result)
+    result.findings.extend(find_known_vulnerabilities(deps))
 
     # Statistics summary
     result.statistics["unpinned_count"] = result.unpinned_count
