@@ -6,7 +6,9 @@ Week 8: signing, ML-BOM, lineage, compliance and audit endpoints added.
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import artifacts, scans, findings, auth, quarantine, reports, stats, supply_chain
+from app.api.v1.endpoints import (
+    api_keys, artifacts, auth, findings, quarantine, reports, scans, stats, supply_chain, system,
+)
 
 api_router = APIRouter()
 
@@ -87,3 +89,8 @@ api_router.include_router(
     prefix="/api/v1/audit",
     tags=["Supply chain"],
 )
+
+# --- System info, data export, API keys (Week 9) ---
+api_router.include_router(system.system_router, prefix="/api/v1/system", tags=["System"])
+api_router.include_router(system.exports_router, prefix="/api/v1/exports", tags=["Reports"])
+api_router.include_router(api_keys.router, tags=["API keys"])

@@ -1,486 +1,352 @@
 /**
- * AISecGuard — Security Dashboard Page
- * Week 6: Pulls real aggregate stats from backend /api/v1/stats endpoint,
- * falls back to deviceCache when backend is offline.
+ * AISecGuard — Security Dashboard (Week 9 redesign)
  *
- * Features:
- * - 4 stat cards: total scans, critical threats, quarantined, avg risk score
- * - Risk-level distribution pie chart (Recharts)
- * - Findings-by-severity bar chart (Recharts)
- * - Recent scans table with risk/status badges and click-through to detail
- * - Quick-action: Upload & Scan Artifact button
- * - Backend health indicator (green when live, amber when cached)
+ * Shows only real data from GET /api/v1/stats. When the backend cannot be
+ * reached the page says so and offers a retry; it never fills in sample numbers.
+ * Per-artifact figures (high risk, CVEs, top rules) use each artifact's latest scan.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { statsApi } from '../api/client';
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Activity,
-  AlertOctagon,
-  ShieldAlert,
-  Gauge,
-  UploadCloud,
-  ArrowUpRight,
-  FileText,
-  ShieldCheck,
-  CheckCircle2,
-  WifiOff,
-  Wifi,
-  RefreshCw,
+  AlertTriangle, ArrowRight, BadgeCheck, Boxes, Bug, Download, GitBranch, Lock, RefreshCw, ScanSearch, UploadCloud, WifiOff,
 } from 'lucide-react';
+import { API_ORIGIN, apiErrorMessage, exportsApi, statsApi } from '../api/client';
 
-import { deviceCache } from '../utils/deviceCache';
+const RISK_COLORS = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#10b981', UNKNOWN: '#64748b' };
+const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
+const SEV_COLORS = { ...RISK_COLORS, INFORMATIONAL: '#64748b' };
+const TYPE_LABEL = { MODEL: ['model', 'models'], DATASET: ['dataset', 'datasets'], DEPENDENCY: ['manifest', 'manifests'] };
 
-const RISK_COLORS = {
-  CRITICAL: '#dc2626',
-  HIGH:     '#ea580c',
-  MEDIUM:   '#ca8a04',
-  LOW:      '#10b981',
-  UNKNOWN:  '#64748b',
-};
+const cardTitle = { fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94a3b8' };
+const muted = { fontSize: '0.8rem', color: '#94a3b8' };
+const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12, color: '#e2e8f0' };
 
-const SEV_COLORS = {
-  CRITICAL:      '#dc2626',
-  HIGH:          '#ea580c',
-  MEDIUM:        '#ca8a04',
-  LOW:           '#10b981',
-  INFORMATIONAL: '#64748b',
-};
-
-// ─── Sub-components ─────────────────────────────────────────────────────────
-
-function StatusBadge({ status }) {
-  const norm = (status || 'pending').toLowerCase();
-  return <span className={`badge badge-${norm}`}>{status}</span>;
+function Kpi({ icon: Icon, label, value, sub, tone = '#60a5fa', onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="card"
+      style={{ textAlign: 'left', padding: '1.1rem 1.25rem', cursor: onClick ? 'pointer' : 'default', width: '100%' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+        <span style={cardTitle}>{label}</span>
+        <span style={{ padding: 6, borderRadius: 8, background: `${tone}1f`, color: tone, display: 'inline-flex' }}><Icon size={16} /></span>
+      </div>
+      <div style={{ fontSize: '1.9rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ ...muted, marginTop: '0.3rem' }}>{sub}</div>}
+    </button>
+  );
 }
 
 function RiskBadge({ level }) {
-  const norm = (level || 'info').toLowerCase();
-  return <span className={`badge badge-${norm}`}>{level || 'UNKNOWN'}</span>;
+  return <span className={`badge badge-${(level || 'info').toLowerCase()}`}>{level || 'UNKNOWN'}</span>;
 }
 
-function StatCard({ title, value, sub, color, icon: Icon, glowColor }) {
+function Panel({ title, sub, action, children, style }) {
   return (
-    <div className="stat-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>
-          {title}
-        </span>
-        <div style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: glowColor || 'rgba(59, 130, 246, 0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: color || '#3b82f6',
-        }}>
-          <Icon size={16} />
+    <div className="card" style={{ padding: '1.25rem 1.4rem', ...style }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
+        <div>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc' }}>{title}</h2>
+          {sub && <p style={{ ...muted, marginTop: '0.15rem' }}>{sub}</p>}
         </div>
+        {action}
       </div>
-      <div>
-        <div style={{ fontSize: '2.1rem', fontWeight: 800, color: color || '#ffffff', lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-          {value}
-        </div>
-        {sub && (
-          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
-            {sub}
-          </div>
-        )}
-      </div>
+      {children}
     </div>
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────────────────────
+function shortDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-
-  // State ──────────────────────────────────────────────────────────────────
   const [stats, setStats] = useState(null);
-  const [recentScans, setRecentScans] = useState([]);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [backendOnline, setBackendOnline] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState(null);
+  const [refreshedAt, setRefreshedAt] = useState(null);
+  const [exporting, setExporting] = useState(null);
 
-  // Derived from deviceCache as immediate fallback
-  const [localScans] = useState(() => deviceCache.getScans());
-  const [localFindings] = useState(() => deviceCache.getFindings());
-  const [localArtifacts] = useState(() => deviceCache.getArtifacts());
-
-  // Data fetching ──────────────────────────────────────────────────────────
-  const fetchData = async (showLoader = true) => {
-    if (showLoader) setLoading(true);
-    try {
-      const res = await statsApi.get();
-      const data = res.data;
-      setStats(data);
-      setRecentScans(data.recent_scans || []);
-      setBackendOnline(true);
-      setLastRefreshed(new Date());
-
-      // Sync recent scans into local cache for offline continuity
-      if (data.recent_scans?.length) {
-        data.recent_scans.forEach(s => deviceCache.saveScan(s));
-      }
-    } catch {
-      // Backend offline — derive stats from local device cache
-      setBackendOnline(false);
-      setStats(null);
-      setRecentScans(localScans.slice(0, 10));
-    } finally {
+  // State only changes in the request's callbacks, never synchronously inside the effect.
+  const fetchStats = useCallback(() => statsApi.get().then(
+    (res) => {
+      setStats(res.data);
+      setError('');
+      setRefreshedAt(new Date());
       setLoading(false);
+    },
+    (e) => {
+      setError(apiErrorMessage(e, 'The backend did not respond.'));
+      setLoading(false);
+    },
+  ), []);
+
+  // Initial load and 30 s polling; `loading` starts true, so only manual refreshes set it.
+  useEffect(() => {
+    fetchStats();
+    const timer = setInterval(fetchStats, 30000);
+    return () => clearInterval(timer);
+  }, [fetchStats]);
+
+  const load = () => {
+    setLoading(true);
+    fetchStats();
+  };
+
+  const exportFindings = async (format) => {
+    setExporting(format);
+    try {
+      await exportsApi.downloadFindings(format);
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Export failed.'));
+    } finally {
+      setExporting(null);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    // Refresh every 60 seconds automatically
-    const timer = setInterval(() => fetchData(false), 60_000);
-    return () => clearInterval(timer);
-  }, []); // eslint-disable-line
+  const header = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+      <div>
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>Security dashboard</h1>
+        <p style={{ color: '#94a3b8', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+          {refreshedAt ? `Live data · refreshed ${refreshedAt.toLocaleTimeString()} · updates every 30 s` : 'Loading live data…'}
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-ghost" onClick={load} disabled={loading}>
+          <RefreshCw size={15} className={loading ? 'spin' : undefined} /><span>Refresh</span>
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => exportFindings('csv')} disabled={!stats || exporting !== null}>
+          <Download size={15} /><span>{exporting === 'csv' ? 'Exporting…' : 'Findings CSV'}</span>
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => exportFindings('json')} disabled={!stats || exporting !== null}>
+          <Download size={15} /><span>{exporting === 'json' ? 'Exporting…' : 'JSON'}</span>
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => navigate('/upload')}>
+          <UploadCloud size={15} /><span>Upload & scan</span>
+        </button>
+      </div>
+    </div>
+  );
 
-  // ─── Derived display values ────────────────────────────────────────────
+  const page = { padding: '2rem 2.5rem', maxWidth: 1280, margin: '0 auto' };
 
-  // Use backend stats if online, otherwise derive from cache
-  const totalScans    = stats?.total_scans        ?? localScans.length;
-  const criticalCount = stats?.critical_findings   ?? localFindings.filter(f => f.severity === 'CRITICAL').length;
-  const quarantined   = stats?.quarantined_artifacts ?? localArtifacts.filter(a => a.status === 'QUARANTINED').length;
-  const avgRisk       = stats?.avg_risk_score
-    ?? (localScans.length ? Math.round(localScans.reduce((s, sc) => s + (sc.risk_score || 0), 0) / localScans.length) : 0);
-
-  // Risk distribution pie data
-  const riskDist = stats?.risk_distribution
-    ? Object.entries(stats.risk_distribution).map(([name, value]) => ({ name, value }))
-    : Object.entries(
-        localScans.reduce((acc, sc) => {
-          const rl = sc.risk_level || 'UNKNOWN';
-          acc[rl] = (acc[rl] || 0) + 1;
-          return acc;
-        }, {})
-      ).map(([name, value]) => ({ name, value }));
-
-  // Severity bar data
-  const sevBar = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'].map(sev => ({
-    name: sev.charAt(0) + sev.slice(1).toLowerCase(),
-    count: stats?.severity_distribution?.[sev]
-      ?? localFindings.filter(f => f.severity === sev).length,
-    fill: SEV_COLORS[sev],
-  }));
-
-  const displayScans = recentScans.length > 0 ? recentScans : localScans.slice(0, 8);
-
-  // ─── Loading spinner ───────────────────────────────────────────────────
-  if (loading) {
+  if (!stats) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '0.875rem' }}>
-        <span className="spinner" style={{ width: 36, height: 36 }} />
-        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Loading security intelligence…</span>
+      <div className="fade-in" style={page}>
+        {header}
+        {error ? (
+          <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+            <WifiOff size={40} style={{ color: '#f87171', margin: '0 auto 0.75rem' }} />
+            <h2 style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.1rem' }}>Backend not reachable</h2>
+            <p style={{ ...muted, marginTop: '0.4rem', maxWidth: 520, marginInline: 'auto' }}>
+              Could not load data from <span className="font-mono">{API_ORIGIN}/api/v1/stats</span>. {error} Start the API
+              (<span className="font-mono">docker compose up</span> or <span className="font-mono">uvicorn main:app</span>) and retry.
+            </p>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '1.25rem' }} onClick={load}>
+              <RefreshCw size={15} /><span>Retry</span>
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8' }}>
+            <span className="spinner" style={{ width: 24, height: 24 }} /> Loading dashboard…
+          </div>
+        )}
       </div>
     );
   }
 
-  // ─── Main render ──────────────────────────────────────────────────────
+  const types = stats.artifacts_by_type || {};
+  const typeLine = Object.entries(types)
+    .map(([t, n]) => `${n} ${(TYPE_LABEL[t] || [t.toLowerCase(), t.toLowerCase()])[n === 1 ? 0 : 1]}`)
+    .join(' · ') || 'none yet';
+  const riskData = Object.entries(stats.risk_distribution || {})
+    .filter(([, n]) => n > 0)
+    .map(([level, count]) => ({ level, count }))
+    .sort((a, b) => Object.keys(RISK_COLORS).indexOf(a.level) - Object.keys(RISK_COLORS).indexOf(b.level));
+  const sevData = SEVERITIES.map((s) => ({ severity: s === 'INFORMATIONAL' ? 'INFO' : s, key: s, count: stats.severity_distribution?.[s] || 0 }));
+  const timeline = (stats.scans_over_time || []).map((d) => ({ ...d, label: shortDate(d.date), other: d.scans - d.high_risk }));
+  const empty = stats.total_scans === 0;
+
   return (
-    <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1300, margin: '0 auto' }}>
+    <div className="fade-in" style={page}>
+      {header}
+      {error && <div className="alert-error" style={{ marginBottom: '1rem' }}>{error}</div>}
 
-      {/* ── Page Title & Quick Actions ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
-            Security Dashboard
-          </h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Unified view of AI supply chain scans, vulnerability findings, and quarantined assets.
-          </p>
-          {/* Backend status indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
-            {backendOnline ? (
-              <>
-                <Wifi size={13} style={{ color: '#10b981' }} />
-                <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>Live Backend Data</span>
-              </>
-            ) : (
-              <>
-                <WifiOff size={13} style={{ color: '#fbbf24' }} />
-                <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: 600 }}>Offline — Local Cache Mode</span>
-              </>
-            )}
-            {lastRefreshed && (
-              <span style={{ fontSize: '0.68rem', color: '#64748b', marginLeft: '0.5rem' }}>
-                Updated {lastRefreshed.toLocaleTimeString()}
-              </span>
-            )}
+      {empty && (
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          <ScanSearch size={28} style={{ color: '#60a5fa' }} />
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ color: '#f8fafc', fontWeight: 700 }}>No scans yet</div>
+            <div style={muted}>Upload a model, dataset or requirements file to see results here.</div>
           </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-            onClick={() => fetchData(false)}
-            title="Refresh dashboard data"
-          >
-            <RefreshCw size={14} />
-            <span>Refresh</span>
-          </button>
-          <button
-            className="btn btn-primary"
-            id="btn-new-scan"
-            style={{ padding: '0.625rem 1.25rem' }}
-            onClick={() => navigate('/upload')}
-          >
-            <UploadCloud size={17} />
-            <span>Upload & Scan Artifact</span>
+          <button type="button" className="btn btn-primary" onClick={() => navigate('/upload')}>
+            <span>Scan your first artifact</span><ArrowRight size={15} />
           </button>
         </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+        <Kpi icon={Boxes} label="Artifacts" value={stats.total_artifacts} sub={typeLine} onClick={() => navigate('/scans')} />
+        <Kpi icon={ScanSearch} label="Scans run" value={stats.total_scans} sub={`avg score ${stats.avg_risk_score}`} onClick={() => navigate('/scans')} />
+        <Kpi icon={AlertTriangle} label="High / critical" value={stats.high_risk_scans} sub="artifacts, latest scan" tone="#f97316" />
+        <Kpi icon={Bug} label="Known CVEs" value={stats.known_vulnerabilities} sub="pinned dependencies" tone="#ef4444" />
+        <Kpi icon={Lock} label="Quarantined" value={stats.quarantined_artifacts} sub="blocked from use" tone="#f87171" onClick={() => navigate('/quarantine')} />
+        <Kpi icon={BadgeCheck} label="Signed" value={stats.signed_artifacts} sub={`${stats.lineage_links} lineage link(s)`} tone="#34d399" onClick={() => navigate('/supply-chain')} />
       </div>
 
-      {/* ── 4 Metric Stat Cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-        <StatCard
-          title="Total Scans Executed"
-          value={totalScans}
-          sub="Across all artifact types"
-          icon={Activity}
-          color="#38bdf8"
-          glowColor="rgba(56, 189, 248, 0.12)"
-        />
-        <StatCard
-          title="Critical Threats"
-          value={criticalCount}
-          sub="Requires immediate isolation"
-          icon={AlertOctagon}
-          color="#f87171"
-          glowColor="rgba(248, 113, 113, 0.15)"
-        />
-        <StatCard
-          title="Quarantined Artifacts"
-          value={quarantined}
-          sub="Isolated in secure containment"
-          icon={ShieldAlert}
-          color="#fb923c"
-          glowColor="rgba(251, 146, 60, 0.15)"
-        />
-        <StatCard
-          title="Average Risk Score"
-          value={avgRisk}
-          sub="Weighted heuristic index (0–50)"
-          icon={Gauge}
-          color={avgRisk > 6 ? '#f87171' : avgRisk > 3 ? '#fbbf24' : '#34d399'}
-          glowColor={avgRisk > 6 ? 'rgba(248,113,113,0.15)' : 'rgba(52,211,153,0.15)'}
-        />
-      </div>
-
-      {/* ── Visual Analytics Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-
-        {/* Risk Distribution Pie Chart */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Risk Level Distribution</h2>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              {backendOnline ? 'Live backend data' : 'Local cache data'}
-            </span>
+      {/* Activity + risk mix */}
+      <div className="dash-grid dash-grid--wide-left">
+        <Panel title="Scan activity" sub="Scans per day, last 14 days">
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={timeline} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="dashOther" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="dashHigh" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} interval={1} />
+                <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Area type="monotone" dataKey="other" name="Low / medium" stackId="1" stroke="#3b82f6" fill="url(#dashOther)" />
+                <Area type="monotone" dataKey="high_risk" name="High / critical" stackId="1" stroke="#f97316" fill="url(#dashHigh)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
+        </Panel>
 
-          {riskDist.length > 0 ? (
-            <div>
-              <ResponsiveContainer width="100%" height={230}>
-                <PieChart>
-                  <Pie
-                    data={riskDist}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {riskDist.map((entry) => (
-                      <Cell key={entry.name} fill={RISK_COLORS[entry.name] || '#64748b'} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#1e293b',
-                      border: '1px solid #334155',
-                      borderRadius: 8,
-                      color: '#f8fafc',
-                      fontSize: '0.8rem',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1rem', marginTop: '0.75rem' }}>
-                {Object.entries(RISK_COLORS).map(([k, c]) => (
-                  <span key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, display: 'inline-block' }} />
-                    <span>{k}</span>
-                  </span>
-                ))}
+        <Panel title="Risk mix" sub="All scans by risk level">
+          {riskData.length ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem 1.5rem', flexWrap: 'wrap' }}>
+              <div style={{ width: 150, height: 150, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={riskData} dataKey="count" nameKey="level" innerRadius={44} outerRadius={70} paddingAngle={2} stroke="none">
+                      {riskData.map((d) => <Cell key={d.level} fill={RISK_COLORS[d.level] || '#64748b'} />)}
+                    </Pie>
+                    <Tooltip contentStyle={tooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
+              <ul style={{ display: 'grid', gap: '0.45rem', flex: '1 1 120px', maxWidth: 220, minWidth: 0 }}>
+                {riskData.map((d) => (
+                  <li key={d.level} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.85rem', color: '#e2e8f0' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: RISK_COLORS[d.level] || '#64748b' }} />{d.level}
+                    </span>
+                    <span style={{ fontWeight: 700 }}>{d.count}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ) : (
-            <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <ShieldCheck size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
-              <span>No scan telemetry available</span>
-              <button className="btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem' }} onClick={() => navigate('/upload')}>
-                Upload First Artifact
-              </button>
-            </div>
-          )}
-        </div>
+          ) : <p style={muted}>No completed scans yet.</p>}
+        </Panel>
+      </div>
 
-        {/* Findings by Severity Bar Chart */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Findings by Severity Category</h2>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Static inspection rules</span>
-          </div>
-
-          {sevBar.some(b => b.count > 0) ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={sevBar} margin={{ left: -15, right: 10, top: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(51, 65, 85, 0.4)" />
-                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: 8,
-                    color: '#f8fafc',
-                    fontSize: '0.8rem',
-                  }}
-                />
-                <Bar dataKey="count" radius={[5, 5, 0, 0]}>
-                  {sevBar.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
+      {/* Severity + top rules */}
+      <div className="dash-grid">
+        <Panel title="Findings by severity" sub={`${stats.total_findings} findings across all scans`}>
+          <div style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={sevData} layout="vertical" margin={{ top: 0, right: 24, left: 4, bottom: 0 }}>
+                <XAxis type="number" allowDecimals={false} hide />
+                <YAxis type="category" dataKey="severity" width={78} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} label={{ position: 'right', fill: '#e2e8f0', fontSize: 11 }}>
+                  {sevData.map((d) => <Cell key={d.key} fill={SEV_COLORS[d.key]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <CheckCircle2 size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
-              <span>No security anomalies identified</span>
-            </div>
-          )}
-        </div>
+          </div>
+        </Panel>
+
+        <Panel title="Most frequent rules" sub="Across each artifact's latest scan">
+          {stats.top_rules?.length ? (
+            <table style={{ width: '100%', fontSize: '0.83rem', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <tbody>
+                {stats.top_rules.map((r) => (
+                  <tr key={r.rule_id} style={{ borderTop: '1px solid #1e293b' }}>
+                    <td style={{ padding: '0.5rem 0.25rem', width: 82 }}>
+                      <span className="font-mono" style={{ color: '#60a5fa', fontSize: '0.78rem' }}>{r.rule_id}</span>
+                    </td>
+                    <td title={r.title} style={{ padding: '0.5rem 0.25rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</td>
+                    <td style={{ padding: '0.5rem 0.25rem', width: 92 }}><RiskBadge level={r.severity === 'INFORMATIONAL' ? 'INFO' : r.severity} /></td>
+                    <td style={{ padding: '0.5rem 0.25rem', width: 34, textAlign: 'right', fontWeight: 700, color: '#f8fafc' }}>{r.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : <p style={muted}>Rules appear here once scans find something.</p>}
+        </Panel>
       </div>
 
-      {/* ── Recent Scans Table ── */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{
-          padding: '1.25rem 1.5rem',
-          borderBottom: '1px solid var(--color-border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff' }}>Recent Security Scans</h2>
-            <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-              {backendOnline ? 'Live from database' : 'From local device cache'} · Showing latest automated analysis results
-            </p>
-          </div>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-            onClick={() => navigate('/scans')}
-          >
-            <span>View All Scans</span>
-            <ArrowUpRight size={14} />
-          </button>
-        </div>
-
-        {displayScans.length > 0 ? (
+      {/* Recent scans */}
+      <Panel
+        title="Recent scans"
+        sub="Click a row for the full report"
+        action={<button type="button" className="btn btn-ghost" onClick={() => navigate('/scans')}><span>All scans</span><ArrowRight size={14} /></button>}
+      >
+        {stats.recent_scans.length ? (
           <div style={{ overflowX: 'auto' }}>
-            <table className="table">
+            <table style={{ width: '100%', fontSize: '0.84rem', borderCollapse: 'collapse', minWidth: 620 }}>
               <thead>
-                <tr>
-                  <th>Scan Identifier</th>
-                  <th>Artifact Class</th>
-                  <th>Status</th>
-                  <th>Risk Tier</th>
-                  <th>Score</th>
-                  <th>Execution Timestamp</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                <tr style={{ color: '#64748b', textAlign: 'left', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <th style={{ padding: '0.4rem 0.5rem' }}>Artifact</th><th style={{ padding: '0.4rem 0.5rem' }}>Type</th>
+                  <th style={{ padding: '0.4rem 0.5rem' }}>Risk</th><th style={{ padding: '0.4rem 0.5rem' }}>Score</th>
+                  <th style={{ padding: '0.4rem 0.5rem' }}>Findings</th><th style={{ padding: '0.4rem 0.5rem' }}>When</th>
                 </tr>
               </thead>
               <tbody>
-                {displayScans.slice(0, 8).map(scan => (
+                {stats.recent_scans.map((s) => (
                   <tr
-                    key={scan.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/scans/${scan.id}`)}
+                    key={s.id}
+                    onClick={() => navigate(`/scans/${s.id}`)}
+                    style={{ borderTop: '1px solid #1e293b', cursor: 'pointer', color: '#e2e8f0' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59,130,246,0.06)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <td>
-                      <span className="font-mono" style={{ fontSize: '0.825rem', color: '#60a5fa' }}>
-                        {scan.id.slice(0, 8)}…
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#cbd5e1' }}>
-                        {scan.scan_type}
-                      </span>
-                    </td>
-                    <td><StatusBadge status={scan.status} /></td>
-                    <td><RiskBadge level={scan.risk_level} /></td>
-                    <td>
-                      <span style={{
-                        fontWeight: 700,
-                        fontSize: '0.95rem',
-                        color: scan.risk_score > 6 ? '#f87171' : scan.risk_score > 3 ? '#fbbf24' : '#34d399',
-                      }}>
-                        {scan.risk_score}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '0.825rem', color: '#94a3b8' }}>
-                      {scan.completed_at ? new Date(scan.completed_at).toLocaleString() : '—'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/scans/${scan.id}`);
-                        }}
-                      >
-                        Inspect
-                      </button>
-                    </td>
+                    <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600 }}>{s.artifact_name || s.artifact_id.slice(0, 8)}</td>
+                    <td style={{ padding: '0.6rem 0.5rem', color: '#94a3b8' }}>{s.scan_type}</td>
+                    <td style={{ padding: '0.6rem 0.5rem' }}><RiskBadge level={s.risk_level} /></td>
+                    <td style={{ padding: '0.6rem 0.5rem', fontWeight: 700 }}>{s.risk_score}</td>
+                    <td style={{ padding: '0.6rem 0.5rem' }}>{s.findings_count}</td>
+                    <td style={{ padding: '0.6rem 0.5rem', color: '#94a3b8' }}>{timeAgo(s.completed_at || s.started_at)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', color: '#64748b' }}>
-            <FileText size={42} style={{ margin: '0 auto 0.75rem', opacity: 0.3 }} />
-            <p style={{ fontWeight: 600, color: '#94a3b8' }}>No scans registered yet</p>
-            <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Upload an AI/ML model, dataset, or dependency file to inspect for security risks.</p>
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: '1.25rem' }}
-              onClick={() => navigate('/upload')}
-            >
-              Upload First Artifact
-            </button>
-          </div>
-        )}
-      </div>
+        ) : <p style={muted}>No scans yet.</p>}
+      </Panel>
 
+      <p style={{ ...muted, marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <GitBranch size={13} /> High / critical, CVE and rule counts use each artifact&apos;s most recent scan; re-scans replace older results.
+      </p>
     </div>
   );
 }

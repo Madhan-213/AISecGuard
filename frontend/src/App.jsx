@@ -13,6 +13,7 @@
  *   /scans/:id   → ScanDetailPage (inside Layout)
  *   /quarantine  → QuarantinePage (inside Layout)
  *   /supply-chain → SupplyChainPage (inside Layout): lineage, audit chain, signing key
+ *   /settings    → SettingsPage (inside Layout): API keys, integrations
  *   *            → redirect to /dashboard
  */
 
@@ -28,6 +29,7 @@ import ScansPage from './pages/ScansPage';
 import ScanDetailPage from './pages/ScanDetailPage';
 import QuarantinePage from './pages/QuarantinePage';
 import SupplyChainPage from './pages/SupplyChainPage';
+import SettingsPage from './pages/SettingsPage';
 
 /**
  * Wrap dashboard-area pages in the sidebar Layout.
@@ -93,6 +95,15 @@ export default function App() {
             element={
               <AppShell>
                 <SupplyChainPage />
+              </AppShell>
+            }
+          />
+
+          <Route
+            path="/settings"
+            element={
+              <AppShell>
+                <SettingsPage />
               </AppShell>
             }
           />

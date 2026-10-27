@@ -4,7 +4,7 @@ Week 5: get_current_user dependency for protected routes.
 """
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -14,6 +14,7 @@ from app.services import auth_service
 from typing import Optional
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 LOCAL_ANALYST_ID = "local-analyst"
 
@@ -42,6 +43,7 @@ def _get_or_create_local_analyst(db: Session) -> User:
 
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
+    api_key: Optional[str] = Depends(api_key_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     """
@@ -70,6 +72,17 @@ def get_current_user(
         return user
 
     # No token provided:
+    if api_key:
+        # A key that was sent must be valid, even in no-login mode.
+        from app.services.api_key_service import authenticate
+        user = authenticate(db, api_key)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+            )
+        return user
+
     if getattr(settings, "NO_LOGIN_REQUIRED", True):
         return _get_or_create_local_analyst(db)
 

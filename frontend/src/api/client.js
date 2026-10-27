@@ -130,3 +130,33 @@ export function apiErrorMessage(error, fallback = 'Request failed.') {
   if (Array.isArray(detail)) return detail.map((d) => d.msg).join('; ');
   return error?.message || fallback;
 }
+
+// --- System info, data export, API keys (Week 9) ---
+export const systemApi = {
+  info: () => apiClient.get('/api/v1/system/info'),
+};
+
+export const exportsApi = {
+  /** Download all findings (latest scan per artifact) as a CSV or JSON file. */
+  downloadFindings: async (format = 'csv', params = {}) => {
+    const res = await apiClient.get('/api/v1/exports/findings', {
+      params: { format, ...params },
+      responseType: format === 'csv' ? 'blob' : 'json',
+    });
+    const blob = format === 'csv' ? res.data : new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `aisecguard-findings-${new Date().toISOString().slice(0, 10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+};
+
+export const apiKeysApi = {
+  list: () => apiClient.get('/api/v1/api-keys'),
+  create: (name) => apiClient.post('/api/v1/api-keys', { name }),
+  revoke: (id) => apiClient.delete(`/api/v1/api-keys/${id}`),
+};
+
+/** Where the browser reaches the API: VITE_API_BASE_URL, or this site's own origin. */
+export const API_ORIGIN = API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
