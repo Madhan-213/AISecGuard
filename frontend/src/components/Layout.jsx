@@ -3,7 +3,8 @@
  * Clean alignments, Lucide icons, live status indicator, and responsive structure.
  */
 
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard,
@@ -11,6 +12,9 @@ import {
   History,
   ShieldAlert,
   GitBranch,
+  Settings,
+  Menu,
+  X,
   LogOut,
   Shield,
   CheckCircle2,
@@ -25,11 +29,21 @@ const navItems = [
   { path: '/scans', label: 'Scan History', icon: History },
   { path: '/quarantine', label: 'Quarantine', icon: ShieldAlert },
   { path: '/supply-chain', label: 'Supply Chain', icon: GitBranch },
+  { path: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Close the mobile drawer whenever the route changes.
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (location.pathname !== lastPath) {
+    setLastPath(location.pathname);
+    setNavOpen(false);
+  }
 
   const handleLogout = () => {
     logout();
@@ -38,8 +52,11 @@ export default function Layout({ children }) {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--color-bg)' }}>
-      {/* Sidebar */}
-      <aside style={{
+      {/* Mobile drawer backdrop */}
+      {navOpen && <div className="app-sidebar-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />}
+
+      {/* Sidebar (off-canvas drawer below 900px) */}
+      <aside className={`app-sidebar ${navOpen ? 'app-sidebar--open' : ''}`} style={{
         width: '260px',
         minWidth: '260px',
         background: 'rgba(15, 23, 42, 0.98)',
@@ -240,7 +257,7 @@ export default function Layout({ children }) {
       </aside>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Top bar */}
         <header style={{
           height: '60px',
@@ -252,8 +269,18 @@ export default function Layout({ children }) {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 2rem',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
+          gap: '0.75rem',
+        }} className="app-topbar">
+          <button
+            type="button"
+            className="app-menu-button"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label={navOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={navOpen}
+          >
+            {navOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <div className="app-topbar-status" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
             <span style={{ color: '#64748b' }}>Platform:</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
               <CheckCircle2 size={15} style={{ color: '#10b981' }} />
@@ -274,7 +301,7 @@ export default function Layout({ children }) {
         </header>
 
         {/* Page Content Viewport */}
-        <main style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg)' }}>
+        <main className="app-main" style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg)' }}>
           {children}
         </main>
       </div>

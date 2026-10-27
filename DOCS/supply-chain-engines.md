@@ -56,3 +56,18 @@ Lineage relations (parent → child): `TRAINED_ON` dataset → model,
 - Compliance output is evidence for documentation, not a legal assessment.
 - Backdoor detection and runtime protection are not implemented (they need a
   sandbox that loads models).
+
+## Dashboard, reporting and API keys (Week 9)
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/v1/stats/` | – | Adds artifact totals, 14-day `scans_over_time`, `top_rules`, `known_vulnerabilities`, `signed_artifacts`, `lineage_links` |
+| GET | `/api/v1/exports/findings?format=csv\|json` | – | Findings export; filters `severity`, `artifact_type`, `latest_only` (default true) |
+| GET | `/api/v1/system/info` | – | Scanners and formats, upload limit, signing key, OSV status |
+| POST | `/api/v1/api-keys` | yes | Create a key `{name}`; the secret is returned once |
+| GET | `/api/v1/api-keys` | yes | List your keys (prefix, last used, revoked) |
+| DELETE | `/api/v1/api-keys/{id}` | yes | Revoke a key |
+
+Send a key as `X-API-Key: asg_…` instead of a login token. Only its SHA-256 is
+stored. An invalid or revoked key is rejected even in no-login mode. Scanning
+needs no third-party API key; OSV.dev lookups are free and keyless.

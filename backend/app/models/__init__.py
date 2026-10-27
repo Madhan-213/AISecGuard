@@ -22,3 +22,4 @@ from app.models.user import User  # noqa: F401
 from app.models.quarantine_event import QuarantineEvent  # noqa: F401
 from app.models.signature import ArtifactSignature  # noqa: F401
 from app.models.lineage import LineageEdge  # noqa: F401
+from app.models.api_key import ApiKey  # noqa: F401

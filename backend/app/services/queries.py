@@ -43,3 +43,17 @@ def latest_signature(db: Session, artifact_id: str) -> ArtifactSignature | None:
 def plain(value) -> str:
     """Enum columns load as enum members on some databases; text output wants the bare value."""
     return getattr(value, "value", value)
+
+
+def latest_scan_ids(db: Session) -> list[str]:
+    """ID of the most recent completed scan of every artifact."""
+    rows = (
+        db.query(Scan.id, Scan.artifact_id, Scan.completed_at)
+        .filter(Scan.status == ScanStatus.COMPLETED.value)
+        .all()
+    )
+    newest: dict[str, tuple] = {}
+    for scan_id, artifact_id, completed_at in rows:
+        if artifact_id not in newest or (completed_at and completed_at > newest[artifact_id][1]):
+            newest[artifact_id] = (scan_id, completed_at)
+    return [scan_id for scan_id, _ in newest.values()]
