@@ -7,6 +7,7 @@ GET  /api/v1/artifacts        — list all artifacts
 GET  /api/v1/artifacts/{id}   — get single artifact
 """
 
+import re
 import uuid
 from pathlib import Path
 
@@ -64,6 +65,9 @@ def _get_extension_map() -> dict[str, ArtifactType]:
 async def upload_artifact(
     file: UploadFile = File(..., description="The artifact file to upload"),
     source_url: str | None = Form(None, description="Optional URL where artifact was obtained"),
+    expected_sha256: str | None = Form(
+        None, description="Optional SHA-256 the file should have (e.g. as published by the model hub)"
+    ),
     db: Session = Depends(get_db),
 ):
     """Upload an artifact and create its provenance baseline."""
@@ -75,6 +79,14 @@ async def upload_artifact(
         )
 
     original_filename = file.filename
+
+    if expected_sha256:
+        expected_sha256 = expected_sha256.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="expected_sha256 must be 64 hexadecimal characters.",
+            )
     ext = Path(original_filename).suffix.lower()
 
     ext_map = _get_extension_map()
@@ -139,6 +151,7 @@ async def upload_artifact(
         artifact_id=artifact.id,
         source_url=source_url,
         sha256_hash=sha256,
+        expected_sha256=expected_sha256 or None,
         file_size=len(content),
         uploader_id=None,  # Authentication not implemented in Week 3
     )

@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.artifact import Artifact
 from app.models.quarantine_event import QuarantineEvent
+from app.services.audit_service import append_event
 from app.models.enums import ArtifactStatus
 from app.models.user import User
 from app.schemas.auth import QuarantineRequest, ReleaseRequest, QuarantineEventResponse
@@ -101,7 +102,7 @@ def quarantine_artifact(
         actor_id=current_user.id,
         actor_email=current_user.email,
     )
-    db.add(event)
+    append_event(db, event)
     db.commit()
     db.refresh(event)
 
@@ -168,7 +169,7 @@ def release_artifact(
         actor_id=current_user.id,
         actor_email=current_user.email,
     )
-    db.add(event)
+    append_event(db, event)
     db.commit()
     db.refresh(event)
 

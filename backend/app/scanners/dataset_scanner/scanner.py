@@ -126,6 +126,18 @@ def _read_parquet(data: bytes) -> "pd.DataFrame":
     return pd.read_parquet(io.BytesIO(data))
 
 
+_READERS = {".csv": _read_csv, ".json": _read_json, ".jsonl": _read_jsonl, ".parquet": _read_parquet}
+
+
+def read_dataset(path: str | Path) -> "pd.DataFrame":
+    """Load a supported dataset file into a DataFrame (static read; nothing is evaluated)."""
+    path = Path(path)
+    reader = _READERS.get(path.suffix.lower())
+    if reader is None:
+        raise ValueError(f"Unsupported dataset extension: {path.suffix!r}")
+    return reader(path.read_bytes())
+
+
 # ---------------------------------------------------------------------------
 # Analysis: structural checks
 # ---------------------------------------------------------------------------

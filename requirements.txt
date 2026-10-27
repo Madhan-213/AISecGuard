@@ -20,6 +20,7 @@ email-validator>=2.0.0   # required by pydantic EmailStr in app/schemas/auth.py
 
 # --- Authentication ---
 python-jose[cryptography]>=3.3.0
+cryptography>=42.0.0   # Ed25519 model signing (services/signing_service.py)
 passlib[bcrypt]>=1.7.4
 python-multipart>=0.0.9
 

@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 100
 
+    # Model signing (Ed25519). Empty = <UPLOAD_DIR>/.keys/signing_ed25519.pem
+    SIGNING_KEY_PATH: str = ""
+
+    # Online vulnerability lookups (OSV.dev). Off by default: scans stay offline.
+    OSV_LOOKUP_ENABLED: bool = False
+    OSV_TIMEOUT_SECONDS: float = 5.0
+
     # Allowed file extensions
     ALLOWED_MODEL_EXTENSIONS: List[str] = [
         ".pkl", ".joblib", ".h5", ".pt", ".pth", ".onnx", ".bin", ".safetensors"

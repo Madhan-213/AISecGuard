@@ -2,10 +2,11 @@
 AISecGuard — API v1 Router
 Week 3: artifacts, scans, findings endpoints.
 Week 5: auth, quarantine, and report endpoints added.
+Week 8: signing, ML-BOM, lineage, compliance and audit endpoints added.
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import artifacts, scans, findings, auth, quarantine, reports, stats
+from app.api.v1.endpoints import artifacts, scans, findings, auth, quarantine, reports, stats, supply_chain
 
 api_router = APIRouter()
 
@@ -64,4 +65,25 @@ api_router.include_router(
     stats.router,
     prefix="/api/v1/stats",
     tags=["Stats"],
+)
+
+# --- Supply chain: signing, ML-BOM, lineage, compliance (Week 8) ---
+api_router.include_router(
+    supply_chain.artifact_router,
+    prefix="/api/v1/artifacts",
+    tags=["Supply chain"],
+)
+api_router.include_router(
+    supply_chain.lineage_router,
+    tags=["Supply chain"],
+)
+api_router.include_router(
+    supply_chain.signing_router,
+    prefix="/api/v1/signing",
+    tags=["Supply chain"],
+)
+api_router.include_router(
+    supply_chain.audit_router,
+    prefix="/api/v1/audit",
+    tags=["Supply chain"],
 )

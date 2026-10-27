@@ -5,7 +5,7 @@ Week 5: Immutable audit trail for quarantine/release actions on artifacts.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Text
+from sqlalchemy import String, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -38,6 +38,12 @@ class QuarantineEvent(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+    # Tamper-evident hash chain (Week 8, see services/audit_service.py).
+    # Rows written before the chain existed have NULLs and are reported as unchained.
+    seq: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     def __repr__(self) -> str:
         return (

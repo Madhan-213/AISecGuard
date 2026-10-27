@@ -37,6 +37,7 @@ class ProvenanceFinding:
     description: str
     evidence: str | None = None
     recommendation: str | None = None
+    rule_id: str = "PROV-001"
 
 
 @dataclass
@@ -90,6 +91,7 @@ def run_provenance_check(
     if expected_hash and expected_hash.lower() != computed_hash:
         integrity_ok = False
         findings.append(ProvenanceFinding(
+            rule_id="PROV-002",
             finding_type=FindingType.INTEGRITY_VIOLATION,
             severity=FindingSeverity.HIGH,
             title="Integrity hash mismatch (expected vs computed)",
@@ -112,6 +114,7 @@ def run_provenance_check(
     if baseline_hash and baseline_hash.lower() != computed_hash:
         integrity_ok = False
         findings.append(ProvenanceFinding(
+            rule_id="PROV-001",
             finding_type=FindingType.INTEGRITY_VIOLATION,
             severity=FindingSeverity.HIGH,
             title="Artifact modified since baseline was recorded",
