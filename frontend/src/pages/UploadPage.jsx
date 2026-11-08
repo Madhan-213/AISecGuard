@@ -131,6 +131,11 @@ export default function UploadPage() {
         update(item.id, { step: 2, linkNote });
         const scan = (await scansApi.create(uploaded.id)).data;
         update(item.id, { status: 'done', step: 3, scan });
+
+        // For single-file batches, navigate to real-time progress page
+        if (queued.length === 1) {
+          navigate(`/scans/${scan.id}/progress`);
+        }
       } catch (e) {
         update(item.id, { status: 'failed', error: apiErrorMessage(e, 'Upload or scan failed.') });
       }

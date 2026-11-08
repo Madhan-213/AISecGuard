@@ -23,6 +23,8 @@ Risk Assessment Engine (Week 4):
 
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +39,8 @@ from app.scanners import run_scanner
 from app.services.integrity_service import run_integrity_checks
 from app.services.lineage_service import run_lineage_checks
 from app.services.risk_engine import calculate_risk
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -58,10 +62,22 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         ValueError: If the artifact is not found.
         RuntimeError: If the scan fails unexpectedly.
     """
+    scan_start = time.monotonic()
+    logger.info("[SCAN-START] Starting scan pipeline | artifact_id=%s", artifact_id)
+
     # --- Step 1: Fetch artifact ---
     artifact = db.get(Artifact, artifact_id)
     if artifact is None:
+        logger.error("[SCAN-ERROR] Artifact not found: %s", artifact_id)
         raise ValueError(f"Artifact not found: {artifact_id}")
+
+    logger.info(
+        "[SCAN-ARTIFACT] Loaded artifact | name=%s | type=%s | size=%s bytes | sha256=%s...",
+        artifact.original_filename,
+        artifact.artifact_type,
+        artifact.file_size,
+        (artifact.sha256[:16] if artifact.sha256 else "N/A"),
+    )
 
     # --- Step 2: Create scan record ---
     scan = Scan(
@@ -82,23 +98,57 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
     db.commit()
     db.refresh(scan)
 
+    logger.info(
+        "[SCAN-CREATED] Scan record created | scan_id=%s | type=%s",
+        scan.id, scan.scan_type
+    )
+
     findings_data: list[dict] = []
 
     try:
         storage_path = Path(artifact.storage_path)
 
         # --- Step 3: Integrity checks against the upload baseline (PROV-001..003) ---
-        findings_data.extend(f.to_dict() for f in run_integrity_checks(db, artifact, storage_path))
+        t0 = time.monotonic()
+        logger.info(
+            "[SCAN-PHASE] Phase 1/4: Integrity checks (SHA-256, provenance baseline, substitution detection)"
+        )
+        integrity_findings = run_integrity_checks(db, artifact, storage_path)
+        findings_data.extend(f.to_dict() for f in integrity_findings)
+        logger.info(
+            "[SCAN-PHASE] Integrity check complete | findings=%d | elapsed=%.3fs",
+            len(integrity_findings), time.monotonic() - t0
+        )
 
         # --- Step 4: Type-specific scanner (looked up in the registry) ---
-        findings_data.extend(
-            f.to_dict() for f in run_scanner(artifact.artifact_type, storage_path)
+        t0 = time.monotonic()
+        logger.info(
+            "[SCAN-PHASE] Phase 2/4: Running %s static scanner | file=%s | size=%d bytes",
+            artifact.artifact_type, storage_path.name, artifact.file_size
+        )
+        scanner_findings = run_scanner(artifact.artifact_type, storage_path)
+        findings_data.extend(f.to_dict() for f in scanner_findings)
+        logger.info(
+            "[SCAN-PHASE] %s scanner complete | findings=%d | elapsed=%.3fs",
+            artifact.artifact_type, len(scanner_findings), time.monotonic() - t0
         )
 
         # --- Step 4b: Lineage-aware checks (upstream risk, dataset version diff) ---
-        findings_data.extend(f.to_dict() for f in run_lineage_checks(db, artifact, storage_path))
+        t0 = time.monotonic()
+        logger.info(
+            "[SCAN-PHASE] Phase 3/4: Lineage checks (upstream risk propagation, dataset version diff)"
+        )
+        lineage_findings = run_lineage_checks(db, artifact, storage_path)
+        findings_data.extend(f.to_dict() for f in lineage_findings)
+        logger.info(
+            "[SCAN-PHASE] Lineage checks complete | findings=%d | elapsed=%.3fs",
+            len(lineage_findings), time.monotonic() - t0
+        )
 
         # --- Step 5: Persist findings ---
+        logger.info(
+            "[SCAN-PHASE] Phase 4/4: Persisting %d findings to database", len(findings_data)
+        )
         db_findings: list[Finding] = []
         for fd in findings_data:
             finding = Finding(
@@ -119,6 +169,18 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
 
         # --- Step 6: Risk Assessment Engine ---
         risk_score, risk_level = calculate_risk(findings_data)
+        total_elapsed = time.monotonic() - scan_start
+
+        # Count by severity for logging
+        sev_counts: dict[str, int] = {}
+        for fd in findings_data:
+            sev = str(fd.get("severity", "UNKNOWN"))
+            sev_counts[sev] = sev_counts.get(sev, 0) + 1
+
+        logger.info(
+            "[SCAN-RISK] Risk assessment complete | score=%d | level=%s | findings=%d | severity_breakdown=%s",
+            risk_score, risk_level.value, len(findings_data), sev_counts
+        )
 
         # --- Step 7: Complete scan ---
         scan.status = ScanStatus.COMPLETED.value
@@ -129,9 +191,21 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
 
         db.commit()
         db.refresh(scan)
+
+        logger.info(
+            "[SCAN-COMPLETE] Scan finished | scan_id=%s | artifact=%s | risk=%s | score=%d | "
+            "total_findings=%d | duration=%.3fs",
+            scan.id, artifact.original_filename, risk_level.value, risk_score,
+            len(findings_data), total_elapsed
+        )
         return scan
 
     except Exception as exc:
+        elapsed = time.monotonic() - scan_start
+        logger.error(
+            "[SCAN-FAILED] Scan pipeline failed | scan_id=%s | artifact=%s | error=%s | elapsed=%.3fs",
+            scan.id, artifact_id, str(exc), elapsed, exc_info=True
+        )
         scan.status = ScanStatus.FAILED.value
         scan.completed_at = datetime.now(timezone.utc)
         artifact.status = ArtifactStatus.QUARANTINED.value if was_quarantined else ArtifactStatus.FAILED.value
