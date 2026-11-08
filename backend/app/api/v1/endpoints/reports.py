@@ -24,37 +24,70 @@ from app.models.artifact import Artifact
 router = APIRouter()
 
 
+def _normalize_enum_val(val) -> str:
+    """Extract clean string value from Enum or string representation."""
+    if val is None:
+        return ""
+    if hasattr(val, "value"):
+        return str(val.value)
+    s = str(val)
+    if "." in s:
+        return s.split(".")[-1]
+    return s
+
+
 def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
     """Build the structured JSON report payload."""
+    # Compute scan duration
+    duration_seconds = None
+    if scan.started_at and scan.completed_at:
+        duration_seconds = (scan.completed_at - scan.started_at).total_seconds()
+
+    # Severity summary
+    by_severity = _count_by_severity(findings)
+
     return {
         "report_generated_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": "2.0",
         "artifact": {
-            "id": artifact.id,
+            "id": str(artifact.id),
             "original_filename": artifact.original_filename,
-            "artifact_type": artifact.artifact_type,
+            "artifact_type": _normalize_enum_val(artifact.artifact_type),
             "file_size_bytes": artifact.file_size,
             "sha256": artifact.sha256,
-            "uploaded_at": artifact.uploaded_at.isoformat(),
+            "uploaded_at": artifact.uploaded_at.isoformat() if artifact.uploaded_at else None,
         },
         "scan": {
-            "id": scan.id,
-            "scan_type": scan.scan_type,
-            "status": scan.status,
-            "risk_level": scan.risk_level,
+            "id": str(scan.id),
+            "scan_type": _normalize_enum_val(scan.scan_type),
+            "status": _normalize_enum_val(scan.status),
+            "risk_level": _normalize_enum_val(scan.risk_level),
             "risk_score": scan.risk_score,
             "started_at": scan.started_at.isoformat() if scan.started_at else None,
             "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+            "duration_seconds": round(duration_seconds, 3) if duration_seconds is not None else None,
         },
         "summary": {
             "total_findings": len(findings),
-            "by_severity": _count_by_severity(findings),
+            "by_severity": by_severity,
+            "critical_count": by_severity.get("CRITICAL", 0),
+            "high_count": by_severity.get("HIGH", 0),
+            "medium_count": by_severity.get("MEDIUM", 0),
+            "low_count": by_severity.get("LOW", 0),
+            "informational_count": by_severity.get("INFORMATIONAL", 0),
         },
+        "scan_phases": [
+            "1. Provenance & Integrity Check (SHA-256 baseline verification, substitution detection)",
+            f"2. {_normalize_enum_val(artifact.artifact_type)} Static Security Scanner (format-specific static byte analysis)",
+            "3. Lineage Risk Check (upstream dependency & model propagation checks)",
+            "4. Risk Assessment Engine (severity-weighted numeric threat score)",
+        ],
         "findings": [
             {
-                "id": f.id,
+                "id": str(f.id),
                 "rule_id": f.rule_id,
-                "finding_type": f.finding_type,
-                "severity": f.severity,
+                "finding_type": _normalize_enum_val(f.finding_type),
+                "severity": _normalize_enum_val(f.severity).upper(),
                 "title": f.title,
                 "description": f.description,
                 "evidence": f.evidence,
@@ -62,6 +95,11 @@ def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
             }
             for f in findings
         ],
+        "disclaimer": (
+            "This report is generated via automated static security heuristics. "
+            "No untrusted code or weights were executed or deserialized. "
+            "Findings serve as security indicators requiring analyst validation."
+        ),
     }
 
 
@@ -69,7 +107,7 @@ def _count_by_severity(findings: list) -> dict:
     """Count findings grouped by severity."""
     counts = {"INFORMATIONAL": 0, "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
     for f in findings:
-        sev = str(f.severity).upper()
+        sev = _normalize_enum_val(getattr(f, "severity", "")).upper()
         if sev in counts:
             counts[sev] += 1
     return counts
@@ -147,21 +185,36 @@ def _generate_pdf(report: dict) -> bytes:
         risk_para = Paragraph(
             f'<font color="{risk_hex}"><b>{sc["risk_level"]} (score: {sc["risk_score"]})</b></font>', normal
         )
+        dur_secs = sc.get("duration_seconds")
+        dur_str = f"{dur_secs:.2f}s" if dur_secs is not None else "N/A"
         summary_data = [
             ["Risk Level", risk_para],
             ["Total Findings", str(report["summary"]["total_findings"])],
             ["Critical", str(report["summary"]["by_severity"]["CRITICAL"])],
             ["High", str(report["summary"]["by_severity"]["HIGH"])],
             ["Medium", str(report["summary"]["by_severity"]["MEDIUM"])],
+            ["Low", str(report["summary"]["by_severity"]["LOW"])],
+            ["Informational", str(report["summary"]["by_severity"]["INFORMATIONAL"])],
+            ["Scan Duration", dur_str],
+            ["Scan Type", str(sc.get("scan_type", "N/A"))],
         ]
         t2 = Table(summary_data, colWidths=[4*cm, 13*cm])
         t2.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
         ]))
         story.append(t2)
         story.append(Spacer(1, 0.4*cm))
+
+        # Scan phases telemetry
+        phases = report.get("scan_phases", [])
+        if phases:
+            story.append(Paragraph("Scan Phase Telemetry", h2_style))
+            for phase in phases:
+                story.append(Paragraph(f"• {phase}", normal))
+            story.append(Spacer(1, 0.4*cm))
 
         # Findings
         if report["findings"]:

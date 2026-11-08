@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "main:app", "--app-dir", "backend", "--port", "8000"],
+      "port": 8000,
+      "env": {
+        "DATABASE_URL": "sqlite:///C:/Users/mmadh/AppData/Local/Temp/claude/D--MCA-3rd-SEM-project-AISecGuard/655679a7-b6ca-4ded-b228-6f61df68aed6/scratchpad/e2e/demo.db",
+        "UPLOAD_DIR": "C:/Users/mmadh/AppData/Local/Temp/claude/D--MCA-3rd-SEM-project-AISecGuard/655679a7-b6ca-4ded-b228-6f61df68aed6/scratchpad/e2e/uploads"
+      }
+    }
+  ]
+}

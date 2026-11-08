@@ -30,6 +30,7 @@ import ScanDetailPage from './pages/ScanDetailPage';
 import QuarantinePage from './pages/QuarantinePage';
 import SupplyChainPage from './pages/SupplyChainPage';
 import SettingsPage from './pages/SettingsPage';
+import ScanProgressPage from './pages/ScanProgressPage';
 
 /**
  * Wrap dashboard-area pages in the sidebar Layout.
@@ -104,6 +105,15 @@ export default function App() {
             element={
               <AppShell>
                 <SettingsPage />
+              </AppShell>
+            }
+          />
+
+          <Route
+            path="/scans/:scanId/progress"
+            element={
+              <AppShell>
+                <ScanProgressPage />
               </AppShell>
             }
           />
