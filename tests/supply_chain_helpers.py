@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from tests.conftest import make_suspicious_pickle_bytes
 
 
-def auth_headers(client: TestClient, email: str = "engine_tester@example.com") -> dict:
+def auth_headers(client: TestClient, email: str = "engine_tester@example.com", role: str = "ADMIN") -> dict:
     pwd = "EngineTesterPassword123!"
-    client.post("/api/v1/auth/register", json={"email": email, "password": pwd, "full_name": "Engine Tester"})
+    client.post("/api/v1/auth/register", json={"email": email, "password": pwd, "full_name": "Engine Tester", "role": role})
     token = client.post("/api/v1/auth/login", json={"email": email, "password": pwd}).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
 

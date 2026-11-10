@@ -81,7 +81,9 @@ def client(db: Session):
 
     # Patch engine so startup create_all uses test engine
     original_engine = db_session_module.engine
+    original_session_local = db_session_module.SessionLocal
     db_session_module.engine = test_engine
+    db_session_module.SessionLocal = TestingSessionLocal
 
     def override_get_db():
         yield db
@@ -92,6 +94,14 @@ def client(db: Session):
 
     orig_no_login = getattr(settings, "NO_LOGIN_REQUIRED", True)
     settings.NO_LOGIN_REQUIRED = False
+    orig_sync = getattr(settings, "SYNC_SCANS", False)
+    settings.SYNC_SCANS = True
+    # Task 4b: Disable rate limiting in tests to prevent 429s
+    orig_rate_limit = getattr(settings, "RATE_LIMIT_ENABLED", True)
+    settings.RATE_LIMIT_ENABLED = False
+    from app.core.limiter import limiter
+    orig_limiter_enabled = limiter.enabled
+    limiter.enabled = False
 
     fastapi_app.dependency_overrides[get_db] = override_get_db
 
@@ -100,7 +110,11 @@ def client(db: Session):
 
     fastapi_app.dependency_overrides.clear()
     settings.NO_LOGIN_REQUIRED = orig_no_login
+    settings.SYNC_SCANS = orig_sync
+    settings.RATE_LIMIT_ENABLED = orig_rate_limit
+    limiter.enabled = orig_limiter_enabled
     db_session_module.engine = original_engine
+    db_session_module.SessionLocal = original_session_local
 
 
 # -----------------------------------------------------------------------

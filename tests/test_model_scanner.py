@@ -217,3 +217,55 @@ def test_model_scanner_unsupported_format():
     finally:
         os.unlink(path)
 
+
+
+def test_model_scanner_zip_repository():
+    """Verify scanning a Hugging Face model repository zip with weights, config, and dependencies."""
+    import zipfile
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
+        zip_path = tf.name
+
+    try:
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            # 1. Config with auto_map
+            zf.writestr("config.json", '{"model_type": "custom", "auto_map": {"AutoModel": "modeling_custom.CustomModel"}}')
+            # 2. requirements.txt with pinned dependency
+            zf.writestr("requirements.txt", "torch==2.1.0\nrequests==2.28.0\n")
+            # 3. Model weights
+            zf.writestr("pytorch_model.bin", b"fake model weight bytes for testing")
+            # 4. Custom modeling script
+            zf.writestr("modeling_custom.py", "import os\ndef run():\n    os.system('id')\n")
+
+        result = scan_model_file(zip_path)
+        assert result.format_identified == "HUGGINGFACE_ZIP_REPO"
+        titles = [f.title for f in result.findings]
+        
+        # Verify findings from multiple components
+        assert any("auto_map detected" in t for t in titles)
+        assert any("modeling_custom.py" in t for t in titles)
+        assert any("repository archive ingested" in t for t in titles)
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)
+
+
+def test_model_scanner_zip_slip():
+    """Verify detection of zip-slip path traversal sequence."""
+    import zipfile
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
+        zip_path = tf.name
+
+    try:
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("../../etc/passwd", "root:x:0:0::/root:/bin/bash")
+
+        result = scan_model_file(zip_path)
+        rule_ids = {f.rule_id for f in result.findings}
+        assert "MODEL-ZIP-001" in rule_ids
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)

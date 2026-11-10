@@ -53,8 +53,8 @@ apiClient.interceptors.response.use(
 
 // --- Auth helpers ---
 export const authApi = {
-  register: (email, password, full_name) =>
-    apiClient.post('/api/v1/auth/register', { email, password, full_name }),
+  register: (email, password, full_name, role) =>
+    apiClient.post('/api/v1/auth/register', { email, password, full_name, role }),
   login: (email, password) =>
     apiClient.post('/api/v1/auth/login', { email, password }),
   me: () => apiClient.get('/api/v1/auth/me'),
@@ -112,12 +112,15 @@ export const supplyChainApi = {
   sign: (artifactId) => apiClient.post(`/api/v1/artifacts/${artifactId}/sign`),
   signature: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/signature`),
   publicKey: () => apiClient.get('/api/v1/signing/public-key'),
+  keys: () => apiClient.get('/api/v1/signing/keys'),
+  rotateKey: () => apiClient.post('/api/v1/signing/rotate'),
   lineage: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/lineage`),
   link: (parent_id, child_id, relation, note) =>
     apiClient.post('/api/v1/lineage', { parent_id, child_id, relation, note: note || null }),
   unlink: (edgeId) => apiClient.delete(`/api/v1/lineage/${edgeId}`),
   compliance: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/compliance`),
-  mlbom: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/mlbom`),
+  mlbom: (artifactId, spec_version = '1.5') =>
+    apiClient.get(`/api/v1/artifacts/${artifactId}/mlbom`, { params: { spec_version } }),
   modelCard: (artifactId) =>
     apiClient.get(`/api/v1/artifacts/${artifactId}/model-card`, { responseType: 'text' }),
   verifyAudit: () => apiClient.get('/api/v1/audit/verify'),

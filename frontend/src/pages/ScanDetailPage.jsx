@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { scansApi, artifactsApi } from '../api/client';
 import SupplyChainPanel from '../components/supply/SupplyChainPanel';
+import { useToast } from '../context/ToastContext';
 import {
   ShieldCheck,
   Download,
@@ -72,7 +73,7 @@ function FindingAccordionItem({ finding }) {
       borderRadius: 12,
       overflow: 'hidden',
       marginBottom: '0.875rem',
-      background: open ? 'rgba(20, 28, 48, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+      background: open ? 'var(--color-surface)' : 'var(--color-card-subtle-bg)',
       transition: 'all 0.2s ease',
     }}>
       <button
@@ -86,7 +87,7 @@ function FindingAccordionItem({ finding }) {
           background: open ? cfg.bg : 'transparent',
           cursor: 'pointer',
           border: 'none',
-          color: '#ffffff',
+          color: 'var(--color-text)',
           textAlign: 'left',
           gap: '1rem',
         }}
@@ -96,7 +97,7 @@ function FindingAccordionItem({ finding }) {
           <span className={`badge ${cfg.badgeCls}`}>
             {finding.severity}
           </span>
-          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#f1f5f9' }}>
+          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>
             {finding.title}
           </span>
           {finding.rule_id && (
@@ -118,9 +119,9 @@ function FindingAccordionItem({ finding }) {
       </button>
 
       {open && (
-        <div style={{ padding: '1.25rem', borderTop: '1px solid rgba(51, 65, 85, 0.4)' }}>
+        <div style={{ padding: '1.25rem', borderTop: '1px solid var(--color-border)' }}>
           {/* Description */}
-          <p style={{ fontSize: '0.875rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '1rem' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1rem' }}>
             {finding.description}
           </p>
 
@@ -132,8 +133,8 @@ function FindingAccordionItem({ finding }) {
                 <span>Extracted Telemetry & Byte Evidence</span>
               </div>
               <pre style={{
-                background: 'rgba(8, 12, 22, 0.95)',
-                border: '1px solid #1e293b',
+                background: 'var(--color-code-bg)',
+                border: '1px solid var(--color-border)',
                 borderRadius: 8,
                 padding: '0.875rem 1rem',
                 fontSize: '0.78rem',
@@ -158,7 +159,7 @@ function FindingAccordionItem({ finding }) {
               <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
                 ✓ Prescribed Mitigation
               </div>
-              <p style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.45 }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.45 }}>
                 {finding.recommendation}
               </p>
             </div>
@@ -174,6 +175,7 @@ import { deviceCache } from '../utils/deviceCache';
 export default function ScanDetailPage() {
   const { scanId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   // Check local device cache memory first
   const cachedScan = deviceCache.getScan(scanId);
   const cachedArtifact = cachedScan ? (cachedScan.artifact || deviceCache.getArtifact(cachedScan.artifact_id)) : null;
@@ -214,6 +216,7 @@ export default function ScanDetailPage() {
     if (artifact?.sha256) {
       navigator.clipboard.writeText(artifact.sha256);
       setCopiedHash(true);
+      toast.success('Cryptographic SHA-256 copied to clipboard.');
       setTimeout(() => setCopiedHash(false), 2000);
     }
   };
@@ -230,6 +233,7 @@ export default function ScanDetailPage() {
       a.href = URL.createObjectURL(blob);
       a.download = `aisecguard_report_${scanId.slice(0, 8)}.${format}`;
       a.click();
+      toast.success(`Exported ${format.toUpperCase()} report successfully.`);
     } catch {
       // Fallback export from local device cache memory
       if (format === 'json' && scan) {
@@ -247,8 +251,9 @@ export default function ScanDetailPage() {
         a.href = URL.createObjectURL(jsonBlob);
         a.download = `aisecguard_report_${scanId.slice(0, 8)}.json`;
         a.click();
+        toast.success('Exported JSON report from device cache memory.');
       } else {
-        alert(`Exporting ${format.toUpperCase()} report requires active backend with ReportLab.`);
+        toast.error(`Exporting ${format.toUpperCase()} report requires active backend with ReportLab.`);
       }
     } finally {
       setExportingFormat(null);
@@ -291,7 +296,7 @@ export default function ScanDetailPage() {
           <span>/</span>
           <span style={{ cursor: 'pointer', color: '#38bdf8' }} onClick={() => navigate('/scans')}>Scans</span>
           <span>/</span>
-          <span className="font-mono" style={{ color: '#cbd5e1' }}>{scanId.slice(0, 8)}…</span>
+          <span className="font-mono" style={{ color: 'var(--color-text-muted)' }}>{scanId.slice(0, 8)}…</span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -331,7 +336,7 @@ export default function ScanDetailPage() {
       {/* Header Info */}
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>
             Inspection Report
           </h1>
           <span className={`badge badge-${(scan.status || '').toLowerCase()}`}>
@@ -398,23 +403,23 @@ export default function ScanDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem 1.5rem', fontSize: '0.85rem' }}>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Original Filename</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{artifact.original_filename}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{artifact.original_filename}</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Artifact Classification</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{artifact.artifact_type}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{artifact.artifact_type}</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>File Payload Size</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{(artifact.file_size / 1024).toFixed(1)} KB</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{(artifact.file_size / 1024).toFixed(1)} KB</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Uploaded Timestamp</span>
-                <span style={{ fontWeight: 500, color: '#cbd5e1' }}>{new Date(artifact.uploaded_at).toLocaleString()}</span>
+                <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>{new Date(artifact.uploaded_at).toLocaleString()}</span>
               </div>
 
               {/* SHA-256 with Copy Action */}
-              <div style={{ gridColumn: '1 / -1', background: 'rgba(10, 15, 30, 0.6)', padding: '0.65rem 0.875rem', borderRadius: 8, border: '1px solid #1e293b' }}>
+              <div style={{ gridColumn: '1 / -1', background: 'var(--color-code-bg)', padding: '0.65rem 0.875rem', borderRadius: 8, border: '1px solid var(--color-border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>CRYPTOGRAPHIC SHA-256 HASH</span>
                   <button
@@ -445,11 +450,11 @@ export default function ScanDetailPage() {
           <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '1.25rem', paddingTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Scan Engine Type</span>
-              <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{scan.scan_type}</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{scan.scan_type}</span>
             </div>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Completed At</span>
-              <span style={{ fontWeight: 500, color: '#cbd5e1' }}>
+              <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
                 {scan.completed_at ? new Date(scan.completed_at).toLocaleString() : 'In Progress'}
               </span>
             </div>
@@ -468,7 +473,7 @@ export default function ScanDetailPage() {
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text)' }}>
               Identified Security Findings
             </h2>
             <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.125rem' }}>

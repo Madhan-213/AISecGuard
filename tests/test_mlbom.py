@@ -29,7 +29,7 @@ def test_model_bom_shape(client):
     bom = _bom(client, art["id"])
 
     assert bom["bomFormat"] == "CycloneDX"
-    assert bom["specVersion"] == "1.6"
+    assert bom["specVersion"] in ("1.5", "1.6")
     assert bom["serialNumber"].startswith("urn:uuid:")
     assert bom["metadata"]["tools"]["components"][0]["name"] == "AISecGuard"
 

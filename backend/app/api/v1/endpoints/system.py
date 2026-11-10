@@ -68,6 +68,36 @@ def system_info():
                 ),
             },
         },
+        "rate_limiting": {
+            "enabled": bool(getattr(settings, "RATE_LIMIT_ENABLED", True)),
+            "limits": {
+                "auth_login": "10/minute",
+                "auth_register": "10/minute",
+                "artifact_upload": "30/minute",
+                "default": "200/minute",
+            },
+        },
+        "rbac": {
+            "mode": "Standalone (Guest Mode)" if settings.NO_LOGIN_REQUIRED else "Enterprise (Multi-User RBAC)",
+            "no_login_required": bool(settings.NO_LOGIN_REQUIRED),
+            "roles": [
+                {
+                    "role": "ADMIN",
+                    "title": "Security Administrator",
+                    "description": "Full access: sign artifacts, rotate keys, delete lineage links, manage quarantine.",
+                },
+                {
+                    "role": "ANALYST",
+                    "title": "Security Analyst",
+                    "description": "Operational access: upload artifacts, execute scans, sign artifacts, quarantine & release.",
+                },
+                {
+                    "role": "AUDITOR",
+                    "title": "Compliance Auditor",
+                    "description": "Read-only access: view scan results, EU AI Act compliance scorecards, CycloneDX ML-BOMs, verify audit trail.",
+                },
+            ],
+        },
     }
 
 

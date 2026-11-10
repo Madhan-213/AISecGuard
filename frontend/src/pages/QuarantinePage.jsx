@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { artifactsApi } from '../api/client';
+import { useToast } from '../context/ToastContext';
 import {
   Lock,
   Unlock,
@@ -21,11 +22,12 @@ import { deviceCache } from '../utils/deviceCache';
 export default function QuarantinePage() {
   const [searchParams] = useSearchParams();
   const preselectedArtifact = searchParams.get('artifact');
+  const toast = useToast();
 
   // Initialize from local device cache memory
   const [all, setAll] = useState(() => deviceCache.getArtifacts());
   const [quarantined, setQuarantined] = useState(() => deviceCache.getArtifacts().filter(a => a.status === 'QUARANTINED'));
-  const [_loading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Quarantine / Release modal state
   const [modal, setModal] = useState(null); // { mode: 'quarantine'|'release', artifact }
@@ -34,6 +36,7 @@ export default function QuarantinePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    setLoading(true);
     artifactsApi.list({ limit: 200 })
       .then(res => {
         const arts = res.data.artifacts || [];
@@ -58,6 +61,9 @@ export default function QuarantinePage() {
         const updated = deviceCache.getArtifacts();
         setAll(updated);
         setQuarantined(updated.filter(a => a.status === 'QUARANTINED'));
+      })
+      .finally(() => {
+        setLoading(false);
       });
   }, [preselectedArtifact]);
 
@@ -80,10 +86,13 @@ export default function QuarantinePage() {
       const updated = deviceCache.getArtifacts();
       setAll(updated);
       setQuarantined(updated.filter(a => a.status === 'QUARANTINED'));
+      toast.success(modal.mode === 'quarantine' ? `Artifact "${modal.artifact.original_filename}" moved to quarantine.` : `Artifact "${modal.artifact.original_filename}" released from quarantine.`);
       setModal(null);
       setReason('');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Operation failed.');
+      const errText = err.response?.data?.detail || 'Operation failed.';
+      setError(errText);
+      toast.error(errText);
     } finally {
       setActionLoading(false);
     }
@@ -95,7 +104,7 @@ export default function QuarantinePage() {
     <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1150, margin: '0 auto' }}>
       {/* Title & Description */}
       <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>
           Containment & Quarantine Vault
         </h1>
         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
@@ -131,7 +140,7 @@ export default function QuarantinePage() {
               <Layers size={16} />
             </div>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#ffffff', lineHeight: 1.1 }}>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.1 }}>
             {all.length}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem' }}>
@@ -167,7 +176,7 @@ export default function QuarantinePage() {
           justifyContent: 'space-between',
         }}>
           <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff' }}>
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)' }}>
               Isolated Artifact Inventory
             </h2>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
@@ -200,13 +209,13 @@ export default function QuarantinePage() {
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Lock size={15} style={{ color: '#f87171' }} />
-                        <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{art.original_filename}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{art.original_filename}</span>
                       </div>
                     </td>
                     <td>
                       <span className="badge badge-info">{art.artifact_type}</span>
                     </td>
-                    <td style={{ fontSize: '0.825rem', color: '#cbd5e1' }}>
+                    <td style={{ fontSize: '0.825rem', color: 'var(--color-text-muted)' }}>
                       {(art.file_size / 1024).toFixed(1)} KB
                     </td>
                     <td>
@@ -293,7 +302,7 @@ export default function QuarantinePage() {
                 {modal.mode === 'quarantine' ? <Lock size={18} /> : <Unlock size={18} />}
               </div>
               <div>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text)' }}>
                   {modal.mode === 'quarantine' ? 'Quarantine AI Artifact' : 'Release from Quarantine'}
                 </h2>
                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
@@ -302,8 +311,8 @@ export default function QuarantinePage() {
               </div>
             </div>
 
-            <p style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '1.25rem', background: 'rgba(15, 23, 42, 0.6)', padding: '0.65rem 0.85rem', borderRadius: 8, border: '1px solid var(--color-border)' }}>
-              Target: <strong style={{ color: '#f1f5f9' }}>{modal.artifact.original_filename}</strong>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem', background: 'var(--color-card-subtle-bg)', padding: '0.65rem 0.85rem', borderRadius: 8, border: '1px solid var(--color-border)' }}>
+              Target: <strong style={{ color: 'var(--color-text)' }}>{modal.artifact.original_filename}</strong>
             </p>
 
             <div style={{ marginBottom: '1.25rem' }}>

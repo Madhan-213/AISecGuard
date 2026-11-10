@@ -33,6 +33,8 @@ import io
 import struct
 import hashlib
 import json
+import zipfile
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -592,6 +594,245 @@ def _scan_safetensors_format(result: ModelScanResult, data: bytes) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _scan_zip_repository_format(result: ModelScanResult, path: Path) -> None:
+    """
+    Inspect a multi-file / Hugging Face model repository ZIP archive.
+    Scans model weights, config.json (auto_map / remote code), dependencies, and code
+    under a unified composite scan.
+    """
+    result.format_identified = "HUGGINGFACE_ZIP_REPO"
+
+    if not zipfile.is_zipfile(path):
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-ZIP-000",
+            finding_type=FindingType.MALFORMED_FILE,
+            severity=FindingSeverity.HIGH,
+            title="Corrupted or invalid ZIP repository archive",
+            description="The file has a .zip extension but is not a valid ZIP archive.",
+            evidence=f"File: {path.name}",
+            recommendation="Verify the archive was fully downloaded and not corrupted.",
+        ))
+        return
+
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            infolist = zf.infolist()
+            total_uncompressed = sum(info.file_size for info in infolist)
+            num_files = len(infolist)
+
+            # Security check 1: Zip Slip (path traversal)
+            slip_members = [
+                info.filename for info in infolist
+                if ".." in info.filename or info.filename.startswith(("/", "\\"))
+            ]
+            if slip_members:
+                result.findings.append(ModelFinding(
+                    rule_id="MODEL-ZIP-001",
+                    finding_type=FindingType.SUSPICIOUS_REFERENCE,
+                    severity=FindingSeverity.CRITICAL,
+                    title="Zip Slip path traversal detected in model archive",
+                    description=(
+                        "Archive contains member filenames with path traversal sequences ('..'). "
+                        "Extracting this archive could overwrite arbitrary filesystem files outside the target directory."
+                    ),
+                    evidence="Malicious entry names:\n" + "\n".join(f"  - {m}" for m in slip_members[:5]),
+                    recommendation="Do not extract this archive. Reject or quarantine immediately.",
+                ))
+
+            # Security check 2: Zip Bomb / Excessive size ratio
+            if total_uncompressed > 2 * 1024 * 1024 * 1024:
+                result.findings.append(ModelFinding(
+                    rule_id="MODEL-ZIP-002",
+                    finding_type=FindingType.LARGE_FILE_WARNING,
+                    severity=FindingSeverity.HIGH,
+                    title="Potential zip bomb / excessive uncompressed size",
+                    description=f"Archive uncompressed size ({total_uncompressed / (1024*1024):.1f} MB) exceeds safety threshold.",
+                    evidence=f"Total uncompressed: {total_uncompressed} bytes across {num_files} files",
+                    recommendation="Verify the archive contents before processing in memory.",
+                ))
+
+            # Catalog files
+            manifest_counts = {"model": 0, "config": 0, "dep": 0, "dataset": 0, "code": 0}
+            from app.scanners.dependency_scanner import DependencyScanner
+            from app.scanners.dataset_scanner import DatasetScanner
+
+            for info in infolist:
+                if info.is_dir():
+                    continue
+                name_lower = info.filename.lower()
+                ext = Path(name_lower).suffix
+
+                # Skip files larger than 100MB for deep in-memory inspection
+                if info.file_size > 100 * 1024 * 1024:
+                    continue
+
+                file_bytes = zf.read(info.filename)
+
+                # 1. Model weights
+                if ext in (".pkl", ".pickle", ".joblib"):
+                    manifest_counts["model"] += 1
+                    sub_result = ModelScanResult(file_extension=ext, file_size=info.file_size)
+                    _scan_pickle_format(sub_result, file_bytes, ext)
+                    for f in sub_result.findings:
+                        result.findings.append(ModelFinding(
+                            rule_id=f.rule_id,
+                            finding_type=f.finding_type,
+                            severity=f.severity,
+                            title=f"[{info.filename}] {f.title}",
+                            description=f.description,
+                            evidence=f.evidence,
+                            recommendation=f.recommendation,
+                        ))
+
+                elif ext in (".pt", ".pth"):
+                    manifest_counts["model"] += 1
+                    sub_result = ModelScanResult(file_extension=ext, file_size=info.file_size)
+                    _scan_pytorch_format(sub_result, file_bytes[:16])
+                    for f in sub_result.findings:
+                        result.findings.append(ModelFinding(
+                            rule_id=f.rule_id,
+                            finding_type=f.finding_type,
+                            severity=f.severity,
+                            title=f"[{info.filename}] {f.title}",
+                            description=f.description,
+                            evidence=f.evidence,
+                            recommendation=f.recommendation,
+                        ))
+
+                elif ext == ".safetensors":
+                    manifest_counts["model"] += 1
+                    sub_result = ModelScanResult(file_extension=ext, file_size=info.file_size)
+                    _scan_safetensors_format(sub_result, file_bytes)
+                    for f in sub_result.findings:
+                        result.findings.append(ModelFinding(
+                            rule_id=f.rule_id,
+                            finding_type=f.finding_type,
+                            severity=f.severity,
+                            title=f"[{info.filename}] {f.title}",
+                            description=f.description,
+                            evidence=f.evidence,
+                            recommendation=f.recommendation,
+                        ))
+
+                elif ext == ".onnx":
+                    manifest_counts["model"] += 1
+                    sub_result = ModelScanResult(file_extension=ext, file_size=info.file_size)
+                    _scan_onnx_format(sub_result, file_bytes)
+                    for f in sub_result.findings:
+                        result.findings.append(ModelFinding(
+                            rule_id=f.rule_id,
+                            finding_type=f.finding_type,
+                            severity=f.severity,
+                            title=f"[{info.filename}] {f.title}",
+                            description=f.description,
+                            evidence=f.evidence,
+                            recommendation=f.recommendation,
+                        ))
+
+                # 2. Dependency manifests (requirements.txt, pyproject.toml)
+                elif Path(name_lower).name in ("requirements.txt", "pyproject.toml", "pipfile"):
+                    manifest_counts["dep"] += 1
+                    with tempfile.NamedTemporaryFile("wb", suffix=ext, delete=False) as tmp_dep:
+                        tmp_dep.write(file_bytes)
+                        tmp_dep_path = Path(tmp_dep.name)
+                    try:
+                        dep_findings = DependencyScanner().scan(tmp_dep_path)
+                        for df in dep_findings:
+                            result.findings.append(ModelFinding(
+                                rule_id=df.rule_id,
+                                finding_type=df.finding_type,
+                                severity=df.severity,
+                                title=f"[{info.filename}] {df.title}",
+                                description=df.description,
+                                evidence=df.evidence,
+                                recommendation=df.recommendation,
+                            ))
+                    finally:
+                        tmp_dep_path.unlink(missing_ok=True)
+
+                # 3. Datasets (.csv, .jsonl, .parquet)
+                elif ext in (".csv", ".jsonl"):
+                    manifest_counts["dataset"] += 1
+                    with tempfile.NamedTemporaryFile("wb", suffix=ext, delete=False) as tmp_data:
+                        tmp_data.write(file_bytes)
+                        tmp_data_path = Path(tmp_data.name)
+                    try:
+                        data_findings = DatasetScanner().scan(tmp_data_path)
+                        for dtf in data_findings:
+                            result.findings.append(ModelFinding(
+                                rule_id=dtf.rule_id,
+                                finding_type=dtf.finding_type,
+                                severity=dtf.severity,
+                                title=f"[{info.filename}] {dtf.title}",
+                                description=dtf.description,
+                                evidence=dtf.evidence,
+                                recommendation=dtf.recommendation,
+                            ))
+                    finally:
+                        tmp_data_path.unlink(missing_ok=True)
+
+                # 4. Hugging Face config.json (auto_map / remote code check)
+                elif Path(name_lower).name == "config.json":
+                    manifest_counts["config"] += 1
+                    try:
+                        cfg = json.loads(file_bytes.decode("utf-8", errors="ignore"))
+                        if "auto_map" in cfg:
+                            auto_map_str = json.dumps(cfg["auto_map"], indent=2)
+                            result.findings.append(ModelFinding(
+                                rule_id="MODEL-010",
+                                finding_type=FindingType.SUSPICIOUS_REFERENCE,
+                                severity=FindingSeverity.HIGH,
+                                title=f"[{info.filename}] Hugging Face custom code auto_map detected",
+                                description=(
+                                    "The model repository config.json defines 'auto_map' pointing to custom modeling code. "
+                                    "Loading this model with trust_remote_code=True executes arbitrary Python code from the repository."
+                                ),
+                                evidence=f"auto_map definition:\n{auto_map_str}",
+                                recommendation="Inspect all custom modeling Python scripts before loading with trust_remote_code=True.",
+                            ))
+                    except Exception:
+                        pass
+
+                # 5. Python scripts in repository (.py)
+                elif ext == ".py":
+                    manifest_counts["code"] += 1
+                    suspicious_in_py = _extract_suspicious_strings(file_bytes)
+                    if suspicious_in_py:
+                        result.findings.append(ModelFinding(
+                            rule_id="MODEL-009",
+                            finding_type=FindingType.SUSPICIOUS_REFERENCE,
+                            severity=FindingSeverity.HIGH,
+                            title=f"[{info.filename}] Suspicious command/network patterns in script",
+                            description="Static inspection found shell/subprocess or network calls embedded in custom repository code.",
+                            evidence="Detected patterns:\n" + "\n".join(f"  - {s!r}" for s in suspicious_in_py[:5]),
+                            recommendation="Review the custom script. Remove any unauthorized subprocess or networking calls.",
+                        ))
+
+            # Repository summary finding
+            summary_parts = [f"{count} {kind}" for kind, count in manifest_counts.items() if count > 0]
+            summary_text = ", ".join(summary_parts) if summary_parts else "generic archive files"
+            result.findings.append(ModelFinding(
+                rule_id="MODEL-ZIP-010",
+                finding_type=FindingType.PROVENANCE_RECORDED,
+                severity=FindingSeverity.INFORMATIONAL,
+                title="Hugging Face multi-file repository archive ingested",
+                description=f"Archive contains {num_files} file(s) evaluated under unified composite analysis: {summary_text}.",
+                evidence=f"Archive: {path.name} ({total_uncompressed / 1024:.1f} KB uncompressed)",
+                recommendation="Review individual findings per file component above.",
+            ))
+
+    except Exception as exc:
+        result.findings.append(ModelFinding(
+            rule_id="MODEL-ZIP-999",
+            finding_type=FindingType.OTHER,
+            severity=FindingSeverity.MEDIUM,
+            title="Error during multi-file repository scan",
+            description=f"Scanner encountered an exception reading the archive: {exc}",
+            evidence=str(exc),
+            recommendation="Verify archive structure and file permissions.",
+        ))
+
+
 def scan_model_file(storage_path: str | Path) -> ModelScanResult:
     """
     Perform static analysis on an AI model file.
@@ -651,7 +892,10 @@ def scan_model_file(storage_path: str | Path) -> ModelScanResult:
         ))
 
     # Route to format-specific inspector
-    if ext in (".pkl", ".pickle", ".joblib"):
+    if ext == ".zip":
+        _scan_zip_repository_format(result, storage_path)
+        return result
+    elif ext in (".pkl", ".pickle", ".joblib"):
         _scan_pickle_format(result, full_data, ext)
     elif ext in (".pt", ".pth"):
         _scan_pytorch_format(result, header)

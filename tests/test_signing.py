@@ -108,3 +108,45 @@ def test_signing_requires_authentication(client):
     art = upload(client, "anon.pkl", SAFE_PICKLE)
     scan(client, art["id"])
     assert client.post(f"/api/v1/artifacts/{art['id']}/sign").status_code == 401
+
+
+def test_list_keys_and_rotate_key(client):
+    headers = auth_headers(client)
+    keys_res = client.get("/api/v1/signing/keys")
+    assert keys_res.status_code == 200
+    keys = keys_res.json()
+    assert len(keys) >= 1
+    initial_kid = keys[0]["key_id"]
+    assert keys[0]["status"] == "ACTIVE"
+
+    rotate_res = client.post("/api/v1/signing/rotate", headers=headers)
+    assert rotate_res.status_code == 200
+    rotate_data = rotate_res.json()
+    assert rotate_data["status"] == "ROTATED"
+    assert rotate_data["previous_key_id"] == initial_kid
+    assert rotate_data["new_key_id"] != initial_kid
+
+    updated_keys = client.get("/api/v1/signing/keys").json()
+    assert any(k["key_id"] == rotate_data["new_key_id"] and k["status"] == "ACTIVE" for k in updated_keys)
+    assert any(k["key_id"] == initial_kid and k["status"] == "ARCHIVED" for k in updated_keys)
+
+
+def test_backward_compatible_signature_verification_after_rotation(client):
+    headers = auth_headers(client)
+    art = upload(client, "rotate_compat.pkl", SAFE_PICKLE)
+    scan(client, art["id"])
+
+    sign_res = client.post(f"/api/v1/artifacts/{art['id']}/sign", headers=headers)
+    assert sign_res.status_code == 201
+    key_a = sign_res.json()["key_id"]
+
+    rotate_res = client.post("/api/v1/signing/rotate", headers=headers)
+    assert rotate_res.status_code == 200
+    key_b = rotate_res.json()["new_key_id"]
+    assert key_a != key_b
+
+    verify = client.get(f"/api/v1/artifacts/{art['id']}/signature").json()
+    assert verify["signed"] is True
+    assert verify["valid"] is True
+    assert verify["key_status"] == "ARCHIVED"
+    assert verify["signature"]["key_id"] == key_a

@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.db.session import get_db
 from app.core.config import settings
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_analyst_or_admin
 from app.models.artifact import Artifact
 from app.models.quarantine_event import QuarantineEvent
 from app.services.audit_service import append_event
@@ -51,7 +51,7 @@ def quarantine_artifact(
     artifact_id: str,
     body: QuarantineRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_analyst_or_admin),
 ):
     """
     Transition an artifact from SCANNED → QUARANTINED.
@@ -123,7 +123,7 @@ def release_artifact(
     artifact_id: str,
     body: ReleaseRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_analyst_or_admin),
 ):
     """
     Transition an artifact from QUARANTINED → SCANNED.

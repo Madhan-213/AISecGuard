@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { scansApi } from '../api/client';
+import { useToast } from '../context/ToastContext';
 import {
   Search,
   UploadCloud,
@@ -30,6 +31,7 @@ const RISK_COLORS = {
 
 export default function ScansPage() {
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [scans, setScans] = useState(() => deviceCache.getScans());
   const [loading, setLoading] = useState(true);
@@ -75,7 +77,7 @@ export default function ScansPage() {
       {/* ── Title & Toolbar ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>
             Scan Inventory & History
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}>
@@ -94,7 +96,10 @@ export default function ScansPage() {
           <button
             className="btn btn-ghost"
             style={{ fontSize: '0.8rem', padding: '0.45rem 0.85rem' }}
-            onClick={() => loadScans(false)}
+            onClick={() => {
+              loadScans(false);
+              toast.info('Scan inventory refreshed.');
+            }}
             title="Refresh scan list"
           >
             <RefreshCw size={14} />
@@ -103,7 +108,10 @@ export default function ScansPage() {
           <button
             className="btn btn-ghost"
             style={{ fontSize: '0.8rem', padding: '0.45rem 0.85rem' }}
-            onClick={() => deviceCache.exportCacheAsJson()}
+            onClick={() => {
+              deviceCache.exportCacheAsJson();
+              toast.success('Local scan backup downloaded.');
+            }}
             title="Download JSON backup of all scan data"
           >
             Export Backup
@@ -186,7 +194,7 @@ export default function ScansPage() {
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#e2e8f0' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)' }}>
                         {scan.scan_type}
                       </span>
                     </td>
@@ -209,7 +217,7 @@ export default function ScansPage() {
                         {scan.risk_score ?? '—'}
                       </span>
                     </td>
-                    <td style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                    <td style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                       {scan.findings?.length ?? scan.findings_count ?? '—'}
                     </td>
                     <td style={{ fontSize: '0.825rem', color: '#94a3b8' }}>
