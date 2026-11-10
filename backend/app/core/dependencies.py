@@ -11,7 +11,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services import auth_service
 
-from typing import Optional
+from typing import Callable, Optional
+from app.models.enums import UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -30,6 +31,7 @@ def _get_or_create_local_analyst(db: Session) -> User:
             hashed_password="no_auth_required_local_mode",
             is_active=True,
             is_admin=True,
+            role=UserRole.ADMIN.value,
         )
         try:
             db.add(user)
@@ -106,3 +108,40 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin privileges required",
         )
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# Task 4a - Role-Based Access Control (RBAC) dependencies
+# ---------------------------------------------------------------------------
+
+def require_role(*roles: UserRole) -> Callable:
+    """
+    Factory that returns a FastAPI dependency enforcing one of the given roles.
+
+    In NO_LOGIN_REQUIRED (standalone) mode, the local analyst has full
+    admin-equivalent access and the role check is skipped.
+
+    Usage:
+        @router.post("/...", dependencies=[Depends(require_role(UserRole.ANALYST, UserRole.ADMIN))])
+    """
+    allowed = {r.value for r in roles}
+
+    def _dep(user: User = Depends(get_current_user)) -> User:
+        from app.core.config import settings
+        if getattr(settings, "NO_LOGIN_REQUIRED", True):
+            return user
+        if user.role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. Required role(s): {', '.join(sorted(allowed))}",
+            )
+        return user
+
+    return _dep
+
+
+# Convenience shorthand dependencies
+get_analyst_or_admin = require_role(UserRole.ANALYST, UserRole.ADMIN)
+get_admin_only = require_role(UserRole.ADMIN)
+get_any_authenticated = require_role(UserRole.ADMIN, UserRole.ANALYST, UserRole.AUDITOR)
+

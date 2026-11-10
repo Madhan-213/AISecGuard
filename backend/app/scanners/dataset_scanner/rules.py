@@ -147,6 +147,24 @@ RULE_HIGH_MISSING_VALUES = DatasetRule(
     ),
 )
 
+RULE_CELL_FORMULA_INJECTION = DatasetRule(
+    rule_id="DATA-012",
+    title="Cell-level formula injection detected",
+    finding_type=FindingType.STRUCTURAL_ANOMALY,
+    severity=FindingSeverity.HIGH,
+    description_template=(
+        "One or more cells in the dataset begin with dynamic formula execution prefixes "
+        "(=, @, +, -, |). When opened in spreadsheet applications (e.g. Microsoft Excel, LibreOffice, "
+        "Google Sheets) or evaluated by downstream tools, formula injection can trigger arbitrary command "
+        "execution or data exfiltration."
+    ),
+    recommendation=(
+        "Sanitize formula prefixes before exporting or loading tabular data. "
+        "Prepend a single quote (') or space to cell values beginning with formula operators, "
+        "or strip unneeded leading formula characters."
+    ),
+)
+
 RULE_ALL_MISSING = DatasetRule(
     rule_id="DATA-011",
     title="Potential Anomaly: Column is entirely missing/null",

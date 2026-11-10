@@ -9,11 +9,12 @@ Endpoints:
   GET  /api/v1/auth/me        — Get current authenticated user profile
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
+from app.core.limiter import limiter
 from app.models.user import User
 from app.services import auth_service
 from app.schemas.auth import (
@@ -34,7 +35,8 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
 )
-def register(body: UserRegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def register(request: Request, body: UserRegisterRequest, db: Session = Depends(get_db)):
     """
     Create a new AISecGuard user account.
 
@@ -48,6 +50,7 @@ def register(body: UserRegisterRequest, db: Session = Depends(get_db)):
             email=str(body.email),
             password=body.password,
             full_name=body.full_name or "",
+            role=body.role,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -66,7 +69,8 @@ def register(body: UserRegisterRequest, db: Session = Depends(get_db)):
     response_model=TokenResponse,
     summary="Login and receive JWT tokens",
 )
-def login(body: UserLoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, body: UserLoginRequest, db: Session = Depends(get_db)):
     """
     Authenticate with email + password.
 

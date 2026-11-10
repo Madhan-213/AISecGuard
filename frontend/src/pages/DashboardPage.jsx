@@ -15,15 +15,16 @@ import {
   AlertTriangle, ArrowRight, BadgeCheck, Boxes, Bug, Download, GitBranch, Lock, RefreshCw, ScanSearch, UploadCloud, WifiOff,
 } from 'lucide-react';
 import { API_ORIGIN, apiErrorMessage, exportsApi, statsApi } from '../api/client';
+import { useToast } from '../context/ToastContext';
 
 const RISK_COLORS = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#10b981', UNKNOWN: '#64748b' };
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const SEV_COLORS = { ...RISK_COLORS, INFORMATIONAL: '#64748b' };
 const TYPE_LABEL = { MODEL: ['model', 'models'], DATASET: ['dataset', 'datasets'], DEPENDENCY: ['manifest', 'manifests'] };
 
-const cardTitle = { fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94a3b8' };
-const muted = { fontSize: '0.8rem', color: '#94a3b8' };
-const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12, color: '#e2e8f0' };
+const cardTitle = { fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+const muted = { fontSize: '0.8rem', color: 'var(--color-text-muted)' };
+const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 12, color: 'var(--color-text)' };
 
 function Kpi({ icon: Icon, label, value, sub, tone = '#60a5fa', onClick }) {
   return (
@@ -37,7 +38,7 @@ function Kpi({ icon: Icon, label, value, sub, tone = '#60a5fa', onClick }) {
         <span style={cardTitle}>{label}</span>
         <span style={{ padding: 6, borderRadius: 8, background: `${tone}1f`, color: tone, display: 'inline-flex' }}><Icon size={16} /></span>
       </div>
-      <div style={{ fontSize: '1.9rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ ...muted, marginTop: '0.3rem' }}>{sub}</div>}
     </button>
   );
@@ -52,7 +53,7 @@ function Panel({ title, sub, action, children, style }) {
     <div className="card" style={{ padding: '1.25rem 1.4rem', ...style }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
         <div>
-          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc' }}>{title}</h2>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)' }}>{title}</h2>
           {sub && <p style={{ ...muted, marginTop: '0.15rem' }}>{sub}</p>}
         </div>
         {action}
@@ -78,6 +79,7 @@ function timeAgo(iso) {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [stats, setStats] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -107,6 +109,7 @@ export default function DashboardPage() {
 
   const load = () => {
     setLoading(true);
+    toast.info('Refreshing scan metrics…');
     fetchStats();
   };
 
@@ -114,8 +117,11 @@ export default function DashboardPage() {
     setExporting(format);
     try {
       await exportsApi.downloadFindings(format);
+      toast.success(`Exported findings as ${format.toUpperCase()}.`);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Export failed.'));
+      const msg = apiErrorMessage(e, 'Export failed.');
+      setError(msg);
+      toast.error(msg);
     } finally {
       setExporting(null);
     }
@@ -124,8 +130,8 @@ export default function DashboardPage() {
   const header = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
       <div>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>Security dashboard</h1>
-        <p style={{ color: '#94a3b8', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>Security dashboard</h1>
+        <p style={{ color: 'var(--color-text-muted)', marginTop: '0.25rem', fontSize: '0.9rem' }}>
           {refreshedAt ? `Live data · refreshed ${refreshedAt.toLocaleTimeString()} · updates every 30 s` : 'Loading live data…'}
         </p>
       </div>
@@ -155,7 +161,7 @@ export default function DashboardPage() {
         {error ? (
           <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
             <WifiOff size={40} style={{ color: '#f87171', margin: '0 auto 0.75rem' }} />
-            <h2 style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.1rem' }}>Backend not reachable</h2>
+            <h2 style={{ color: 'var(--color-text)', fontWeight: 700, fontSize: '1.1rem' }}>Backend not reachable</h2>
             <p style={{ ...muted, marginTop: '0.4rem', maxWidth: 520, marginInline: 'auto' }}>
               Could not load data from <span className="font-mono">{API_ORIGIN}/api/v1/stats</span>. {error} Start the API
               (<span className="font-mono">docker compose up</span> or <span className="font-mono">uvicorn main:app</span>) and retry.
@@ -165,7 +171,7 @@ export default function DashboardPage() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--color-text-muted)' }}>
             <span className="spinner" style={{ width: 24, height: 24 }} /> Loading dashboard…
           </div>
         )}
@@ -194,7 +200,7 @@ export default function DashboardPage() {
         <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           <ScanSearch size={28} style={{ color: '#60a5fa' }} />
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ color: '#f8fafc', fontWeight: 700 }}>No scans yet</div>
+            <div style={{ color: 'var(--color-text)', fontWeight: 700 }}>No scans yet</div>
             <div style={muted}>Upload a model, dataset or requirements file to see results here.</div>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => navigate('/upload')}>
@@ -296,7 +302,7 @@ export default function DashboardPage() {
                     </td>
                     <td title={r.title} style={{ padding: '0.5rem 0.25rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</td>
                     <td style={{ padding: '0.5rem 0.25rem', width: 92 }}><RiskBadge level={r.severity === 'INFORMATIONAL' ? 'INFO' : r.severity} /></td>
-                    <td style={{ padding: '0.5rem 0.25rem', width: 34, textAlign: 'right', fontWeight: 700, color: '#f8fafc' }}>{r.count}</td>
+                    <td style={{ padding: '0.5rem 0.25rem', width: 34, textAlign: 'right', fontWeight: 700, color: 'var(--color-text)' }}>{r.count}</td>
                   </tr>
                 ))}
               </tbody>
@@ -331,11 +337,11 @@ export default function DashboardPage() {
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                   >
                     <td style={{ padding: '0.6rem 0.5rem', fontWeight: 600 }}>{s.artifact_name || s.artifact_id.slice(0, 8)}</td>
-                    <td style={{ padding: '0.6rem 0.5rem', color: '#94a3b8' }}>{s.scan_type}</td>
+                    <td style={{ padding: '0.6rem 0.5rem', color: 'var(--color-text-muted)' }}>{s.scan_type}</td>
                     <td style={{ padding: '0.6rem 0.5rem' }}><RiskBadge level={s.risk_level} /></td>
                     <td style={{ padding: '0.6rem 0.5rem', fontWeight: 700 }}>{s.risk_score}</td>
                     <td style={{ padding: '0.6rem 0.5rem' }}>{s.findings_count}</td>
-                    <td style={{ padding: '0.6rem 0.5rem', color: '#94a3b8' }}>{timeAgo(s.completed_at || s.started_at)}</td>
+                    <td style={{ padding: '0.6rem 0.5rem', color: 'var(--color-text-muted)' }}>{timeAgo(s.completed_at || s.started_at)}</td>
                   </tr>
                 ))}
               </tbody>

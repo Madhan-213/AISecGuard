@@ -71,3 +71,11 @@ class FindingType(str, enum.Enum):
     # Lineage (Week 8)
     UPSTREAM_RISK = "UPSTREAM_RISK"
     OTHER = "OTHER"
+
+
+class UserRole(str, enum.Enum):
+    """RBAC roles for AISecGuard users (Task 4)."""
+    ADMIN = "ADMIN"
+    ANALYST = "ANALYST"
+    AUDITOR = "AUDITOR"
+

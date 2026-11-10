@@ -25,6 +25,7 @@ ACADEMIC DISCLAIMER:
 from __future__ import annotations
 
 import io
+import re
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,7 @@ from .rules import (
     RULE_ABNORMAL_CLASS_DISTRIBUTION,
     RULE_HIGH_MISSING_VALUES,
     RULE_ALL_MISSING,
+    RULE_CELL_FORMULA_INJECTION,
     DUPLICATE_RATE_THRESHOLD_PCT,
     OUTLIER_STD_THRESHOLD,
     CLASS_IMBALANCE_THRESHOLD_PCT,
@@ -189,6 +191,55 @@ def _check_structure(result: DatasetScanResult, df: "pd.DataFrame") -> None:
 # ---------------------------------------------------------------------------
 # Analysis: missing value checks
 # ---------------------------------------------------------------------------
+
+def _check_cell_formula_injection(result: DatasetScanResult, df: "pd.DataFrame") -> None:
+    """Sample the first 1,000 data rows to detect formula injection in table cells."""
+    if len(df) == 0:
+        return
+
+    sample_df = df.head(1000)
+    flagged_cells: list[str] = []
+    formula_regex = re.compile(r"^[=@|]|^[+-][A-Za-z_]")
+
+    for col in sample_df.columns:
+        col_series = sample_df[col]
+        for row_idx, val in col_series.dropna().items():
+            if not isinstance(val, str):
+                continue
+            val_str = val.strip()
+            if not val_str:
+                continue
+            # Direct check for formula prefixes or payload patterns
+            is_formula = False
+            if val_str.startswith(("=", "@", "|")):
+                is_formula = True
+            elif val_str.startswith(("+", "-")):
+                # Exclude simple signed numbers (e.g. +42, -3.14)
+                candidate = val_str[1:].strip()
+                try:
+                    float(candidate)
+                except ValueError:
+                    is_formula = True
+
+            if is_formula or formula_regex.match(val_str):
+                preview = val_str if len(val_str) <= 60 else val_str[:57] + "..."
+                flagged_cells.append(f"Row {row_idx}, Column '{col}': {preview!r}")
+                if len(flagged_cells) >= 10:
+                    break
+        if len(flagged_cells) >= 10:
+            break
+
+    if flagged_cells:
+        evidence_text = (
+            f"Sampled first {min(1000, len(df))} data rows. Detected {len(flagged_cells)} cell-level formula payload(s):\n"
+            + "\n".join(f"  - {fc}" for fc in flagged_cells)
+        )
+        _add_finding(
+            result,
+            RULE_CELL_FORMULA_INJECTION,
+            evidence=evidence_text,
+        )
+
 
 def _check_missing_values(result: DatasetScanResult, df: "pd.DataFrame") -> None:
     """Check for high missing value rates."""
@@ -449,6 +500,7 @@ def scan_dataset_file(storage_path: str | Path) -> DatasetScanResult:
     result.statistics["column_count"] = len(df.columns)
 
     _check_structure(result, df)
+    _check_cell_formula_injection(result, df)
     _check_missing_values(result, df)
     _check_duplicates(result, df)
     _check_numerical_outliers(result, df)

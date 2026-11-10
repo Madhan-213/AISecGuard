@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_analyst_or_admin, get_admin_only
 from app.db.session import get_db
 from app.models.artifact import Artifact
 from app.models.lineage import LineageEdge, LineageRelation
@@ -55,7 +55,7 @@ def _artifact(db: Session, artifact_id: str) -> Artifact:
 # ---------------------------------------------------------------------------
 
 @artifact_router.post("/{artifact_id}/sign", status_code=status.HTTP_201_CREATED, summary="Approve and sign an artifact")
-def sign_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def sign_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(get_analyst_or_admin)):
     artifact = _artifact(db, artifact_id)
     try:
         record = signing_service.sign_artifact(db, artifact, user)
@@ -78,13 +78,27 @@ def public_key():
     }
 
 
+@signing_router.get("/keys", summary="List all active and archived signing keys")
+def list_signing_keys():
+    return signing_service.list_keys()
+
+
+@signing_router.post("/rotate", summary="Rotate the server's Ed25519 signing key pair")
+def rotate_signing_key(user: User = Depends(get_admin_only)):
+    return signing_service.rotate_key(user)
+
+
 # ---------------------------------------------------------------------------
 # ML-BOM, compliance, model card
 # ---------------------------------------------------------------------------
 
-@artifact_router.get("/{artifact_id}/mlbom", summary="CycloneDX 1.6 ML-BOM for an artifact")
-def get_mlbom(artifact_id: str, db: Session = Depends(get_db)):
-    return mlbom_service.build_mlbom(db, _artifact(db, artifact_id))
+@artifact_router.get("/{artifact_id}/mlbom", summary="CycloneDX 1.5 / 1.6 ML-BOM for an artifact")
+def get_mlbom(
+    artifact_id: str,
+    spec_version: str = "1.5",
+    db: Session = Depends(get_db),
+):
+    return mlbom_service.build_mlbom(db, _artifact(db, artifact_id), spec_version=spec_version)
 
 
 @artifact_router.get("/{artifact_id}/compliance", summary="EU AI Act evidence mapping")
@@ -112,7 +126,7 @@ def get_lineage(artifact_id: str, db: Session = Depends(get_db)):
 
 
 @lineage_router.post("", status_code=status.HTTP_201_CREATED, summary="Link a parent artifact to a child")
-def create_link(body: LinkRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_link(body: LinkRequest, db: Session = Depends(get_db), user: User = Depends(get_analyst_or_admin)):
     parent, child = _artifact(db, body.parent_id), _artifact(db, body.child_id)
     try:
         lineage_service.validate_link(db, parent, child, body.relation)
@@ -132,7 +146,7 @@ def create_link(body: LinkRequest, db: Session = Depends(get_db), user: User = D
 
 
 @lineage_router.delete("/{edge_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Remove a lineage link")
-def delete_link(edge_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_link(edge_id: str, db: Session = Depends(get_db), user: User = Depends(get_admin_only)):
     edge = db.get(LineageEdge, edge_id)
     if edge is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Link not found: {edge_id}")

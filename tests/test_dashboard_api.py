@@ -1,3 +1,4 @@
+from app.core.config import settings
 """
 AISecGuard — Dashboard data, findings export and system info tests
 """
@@ -89,6 +90,6 @@ def test_system_info(client):
     model = next(s for s in info["scanners"] if s["artifact_type"] == "MODEL")
     assert ".pkl" in model["extensions"]
     assert info["max_upload_mb"] == 100
-    assert info["integrations"]["osv"]["enabled"] is False
+    assert info["integrations"]["osv"]["enabled"] is settings.OSV_LOOKUP_ENABLED
     assert info["integrations"]["osv"]["setting"] == "OSV_LOOKUP_ENABLED"
     assert info["signing"]["algorithm"] == "Ed25519"

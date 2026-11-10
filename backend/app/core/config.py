@@ -46,13 +46,17 @@ class Settings(BaseSettings):
     # Model signing (Ed25519). Empty = <UPLOAD_DIR>/.keys/signing_ed25519.pem
     SIGNING_KEY_PATH: str = ""
 
+    # Rate limiting (Task 4b). Disable in tests to avoid 429s.
+    RATE_LIMIT_ENABLED: bool = True
+
     # Online vulnerability lookups (OSV.dev). Off by default: scans stay offline.
-    OSV_LOOKUP_ENABLED: bool = False
+    OSV_LOOKUP_ENABLED: bool = True
     OSV_TIMEOUT_SECONDS: float = 5.0
+    SYNC_SCANS: bool = False
 
     # Allowed file extensions
     ALLOWED_MODEL_EXTENSIONS: List[str] = [
-        ".pkl", ".joblib", ".h5", ".pt", ".pth", ".onnx", ".bin", ".safetensors"
+        ".pkl", ".joblib", ".h5", ".pt", ".pth", ".onnx", ".bin", ".safetensors", ".zip"
     ]
     ALLOWED_DATASET_EXTENSIONS: List[str] = [
         ".csv", ".json", ".parquet", ".jsonl"

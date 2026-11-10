@@ -4,13 +4,15 @@
    AISecGuard Design System — Professional Enterprise Security
    ============================================================ */
 
-:root {
-  /* Palette: Deep Slate & Precision */
+:root,
+[data-theme=dark] {
+  /* Dark Palette: Deep Slate & Precision */
   --color-bg: #0F172A;
   --color-bg-darker: #0B1120;
   --color-surface: #1E293B;
   --color-surface-card: rgba(30, 41, 59, 0.7);
   --color-border: #334155;
+  --color-border-subtle: rgba(51, 65, 85, 0.4);
   --color-border-highlight: #3B82F6;
   --color-text: #F8FAFC;
   --color-text-muted: #94A3B8;
@@ -21,6 +23,70 @@
   --color-danger: #EF4444;
   --color-warning: #F59E0B;
   --color-success: #10B981;
+
+  --color-sidebar-bg: rgba(15, 23, 42, 0.98);
+  --color-topbar-bg: rgba(15, 23, 42, 0.75);
+  --color-sidebar-footer-bg: rgba(10, 15, 30, 0.6);
+  --color-input-bg: rgba(15, 23, 42, 0.85);
+  --color-table-header-bg: rgba(15, 23, 42, 0.9);
+  --color-table-row-hover: rgba(30, 41, 59, 0.5);
+  --color-card-subtle-bg: rgba(15, 23, 42, 0.5);
+  --color-code-bg: rgba(8, 12, 22, 0.95);
+  --color-modal-bg: rgba(15, 23, 42, 0.98);
+  --color-modal-backdrop: rgba(5, 8, 16, 0.75);
+  --color-btn-ghost-bg: rgba(51, 65, 85, 0.4);
+  --color-btn-ghost-hover: rgba(71, 85, 105, 0.6);
+
+  --toast-success-bg: rgba(16, 185, 129, 0.15);
+  --toast-success-border: rgba(16, 185, 129, 0.4);
+  --toast-error-bg: rgba(239, 68, 68, 0.15);
+  --toast-error-border: rgba(239, 68, 68, 0.4);
+  --toast-warning-bg: rgba(245, 158, 11, 0.15);
+  --toast-warning-border: rgba(245, 158, 11, 0.4);
+  --toast-info-bg: rgba(59, 130, 246, 0.15);
+  --toast-info-border: rgba(59, 130, 246, 0.4);
+}
+
+[data-theme=light] {
+  /* Light Palette: Clean Modern Precision */
+  --color-bg: #F8FAFC;
+  --color-bg-darker: #EDF2F7;
+  --color-surface: #FFFFFF;
+  --color-surface-card: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-border-subtle: #EDF2F7;
+  --color-border-highlight: #2563EB;
+  --color-text: #0F172A;
+  --color-text-muted: #64748B;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-cyan: #0891B2;
+  --color-purple: #7C3AED;
+  --color-danger: #DC2626;
+  --color-warning: #D97706;
+  --color-success: #059669;
+
+  --color-sidebar-bg: #FFFFFF;
+  --color-topbar-bg: rgba(255, 255, 255, 0.92);
+  --color-sidebar-footer-bg: #F8FAFC;
+  --color-input-bg: #FFFFFF;
+  --color-table-header-bg: #F1F5F9;
+  --color-table-row-hover: rgba(241, 245, 249, 0.85);
+  --color-card-subtle-bg: #F8FAFC;
+  --color-code-bg: #F1F5F9;
+  --color-modal-bg: #FFFFFF;
+  --color-modal-backdrop: rgba(15, 23, 42, 0.4);
+  --color-btn-ghost-bg: #F1F5F9;
+  --color-btn-ghost-hover: #E2E8F0;
+
+  --toast-success-bg: rgba(16, 185, 129, 0.12);
+  --toast-success-border: rgba(16, 185, 129, 0.35);
+  --toast-error-bg: rgba(239, 68, 68, 0.12);
+  --toast-error-border: rgba(239, 68, 68, 0.35);
+  --toast-warning-bg: rgba(245, 158, 11, 0.12);
+  --toast-warning-border: rgba(245, 158, 11, 0.35);
+  --toast-info-bg: rgba(37, 99, 235, 0.12);
+  --toast-info-border: rgba(37, 99, 235, 0.35);
 }
 
 /* Kept in the base layer: unlayered, this reset overrode every Tailwind
@@ -88,7 +154,7 @@ code, pre, .font-mono {
 }
 
 .stat-card {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  background: var(--color-surface-card);
   backdrop-filter: blur(12px);
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -150,12 +216,12 @@ code, pre, .font-mono {
 }
 
 .btn-ghost {
-  background: rgba(51, 65, 85, 0.4);
+  background: var(--color-btn-ghost-bg);
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
 }
 .btn-ghost:hover {
-  background: rgba(71, 85, 105, 0.6);
+  background: var(--color-btn-ghost-hover);
   color: var(--color-text);
   border-color: #475569;
 }
@@ -174,7 +240,7 @@ code, pre, .font-mono {
 .input {
   width: 100%;
   padding: 0.625rem 0.875rem;
-  background: rgba(15, 23, 42, 0.85);
+  background: var(--color-input-bg);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   color: var(--color-text);
@@ -184,7 +250,7 @@ code, pre, .font-mono {
 }
 .input:focus {
   border-color: var(--color-primary);
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--color-input-bg);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
 }
 .input::placeholder {
@@ -291,7 +357,7 @@ code, pre, .font-mono {
 .table th {
   text-align: left;
   padding: 0.875rem 1.25rem;
-  background: rgba(15, 23, 42, 0.9);
+  background: var(--color-table-header-bg);
   color: #94a3b8;
   font-weight: 600;
   font-size: 0.75rem;
@@ -301,7 +367,7 @@ code, pre, .font-mono {
 }
 .table td {
   padding: 0.95rem 1.25rem;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.4);
+  border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
   vertical-align: middle;
 }
@@ -309,7 +375,7 @@ code, pre, .font-mono {
   transition: background-color 0.15s ease;
 }
 .table tbody tr:hover td {
-  background: rgba(30, 41, 59, 0.5);
+  background: var(--color-table-row-hover);
 }
 .table tr:last-child td {
   border-bottom: none;

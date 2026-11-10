@@ -15,18 +15,19 @@ import {
   Loader2, Package, Play, ShieldCheck, Trash2, UploadCloud, X,
 } from 'lucide-react';
 import { apiErrorMessage, artifactsApi, scansApi, supplyChainApi, systemApi } from '../api/client';
+import { useToast } from '../context/ToastContext';
 
 const FALLBACK_INFO = {
   max_upload_mb: 100,
   scanners: [
-    { artifact_type: 'MODEL', extensions: ['.pkl', '.joblib', '.h5', '.pt', '.pth', '.onnx', '.bin', '.safetensors'] },
+    { artifact_type: 'MODEL', extensions: ['.pkl', '.joblib', '.h5', '.pt', '.pth', '.onnx', '.bin', '.safetensors', '.zip'] },
     { artifact_type: 'DATASET', extensions: ['.csv', '.json', '.parquet', '.jsonl'] },
     { artifact_type: 'DEPENDENCY', extensions: ['.txt', '.toml'] },
   ],
 };
 
 const TYPE_META = {
-  MODEL: { label: 'Model', icon: Cpu, color: '#38bdf8', hint: 'Pickle opcodes, PyTorch / Keras / ONNX / SafeTensors headers' },
+  MODEL: { label: 'Model', icon: Cpu, color: '#38bdf8', hint: 'Pickle, PyTorch, SafeTensors, ONNX, or .zip (Hugging Face repo)' },
   DATASET: { label: 'Dataset', icon: Database, color: '#a78bfa', hint: 'Duplicates, outliers, label skew, version diffs' },
   DEPENDENCY: { label: 'Dependencies', icon: Package, color: '#34d399', hint: 'Pinning, typosquatting, known CVEs' },
 };
@@ -41,8 +42,8 @@ const RELATION_TEXT = {
 };
 
 const STEPS = ['Upload', 'Link', 'Scan'];
-const muted = { fontSize: '0.8rem', color: '#94a3b8' };
-const fieldLabel = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.3rem' };
+const muted = { fontSize: '0.8rem', color: 'var(--color-text-muted)' };
+const fieldLabel = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.3rem' };
 
 function extOf(name) {
   const i = name.lastIndexOf('.');
@@ -59,6 +60,7 @@ let nextId = 0;
 
 export default function UploadPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [info, setInfo] = useState(FALLBACK_INFO);
   const [items, setItems] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
@@ -90,10 +92,13 @@ export default function UploadPage() {
         if (!type) error = `Unsupported file type ${extOf(file.name) || '(no extension)'}.`;
         else if (file.size === 0) error = 'File is empty.';
         else if (file.size > maxBytes) error = `Larger than the ${info.max_upload_mb} MB limit.`;
+        if (error) {
+          toast.warning(`${file.name}: ${error}`);
+        }
         return { id: ++nextId, file, type, status: error ? 'invalid' : 'queued', step: -1, error, scan: null };
       }),
     ]);
-  }, [extToType, info.max_upload_mb]);
+  }, [extToType, info.max_upload_mb, toast]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, multiple: true, disabled: running });
 
@@ -137,7 +142,9 @@ export default function UploadPage() {
           navigate(`/scans/${scan.id}/progress`);
         }
       } catch (e) {
-        update(item.id, { status: 'failed', error: apiErrorMessage(e, 'Upload or scan failed.') });
+        const errMsg = apiErrorMessage(e, 'Upload or scan failed.');
+        update(item.id, { status: 'failed', error: errMsg });
+        toast.error(errMsg);
       }
     }
     setRunning(false);
@@ -149,7 +156,7 @@ export default function UploadPage() {
   return (
     <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>Upload & scan</h1>
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>Upload & scan</h1>
         <p style={{ color: '#94a3b8', marginTop: '0.25rem', fontSize: '0.9rem' }}>
           Drop models, datasets or dependency files. Each one is fingerprinted, linked to its sources and scanned statically. Nothing is executed.
         </p>
@@ -171,7 +178,7 @@ export default function UploadPage() {
           >
             <input {...getInputProps()} />
             <UploadCloud size={40} style={{ color: isDragActive ? '#60a5fa' : '#64748b', margin: '0 auto 0.75rem' }} />
-            <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.05rem' }}>
+            <div style={{ color: 'var(--color-text)', fontWeight: 700, fontSize: '1.05rem' }}>
               {isDragActive ? 'Drop to add to the queue' : 'Drag files here or click to choose'}
             </div>
             <p style={{ ...muted, marginTop: '0.35rem' }}>Several files at once · up to {info.max_upload_mb} MB each</p>
@@ -195,7 +202,7 @@ export default function UploadPage() {
               aria-expanded={showProvenance}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f8fafc', fontWeight: 700 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text)', fontWeight: 700 }}>
                 <Fingerprint size={17} style={{ color: '#60a5fa' }} /> Provenance details <span style={{ ...muted, fontWeight: 400 }}>(optional, recommended)</span>
               </span>
               <ChevronDown size={18} style={{ color: '#94a3b8', transform: showProvenance ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
@@ -238,7 +245,7 @@ export default function UploadPage() {
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
               <div>
-                <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc' }}>Queue</h2>
+                <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)' }}>Queue</h2>
                 <p style={muted}>{items.length ? `${queued.length} ready · ${done.length} scanned` : 'No files yet'}</p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -326,7 +333,7 @@ export default function UploadPage() {
         <div style={{ display: 'grid', gap: '1.25rem', alignContent: 'start' }}>
           {done.length > 0 && (
             <div className="card">
-              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.75rem' }}>This batch</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.75rem' }}>This batch</h2>
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
                 {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].filter((l) => summary[l]).map((l) => (
                   <span key={l} className={`badge badge-${l.toLowerCase()}`}>{summary[l]} {l}</span>
@@ -339,7 +346,7 @@ export default function UploadPage() {
           )}
 
           <div className="card">
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.75rem' }}>What gets checked</h2>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.75rem' }}>What gets checked</h2>
             <ul style={{ display: 'grid', gap: '0.75rem' }}>
               {Object.entries(TYPE_META).map(([type, meta]) => {
                 const Icon = meta.icon;

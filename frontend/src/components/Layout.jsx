@@ -1,11 +1,13 @@
 /**
  * AISecGuard — Premium Sidebar Navigation Layout
- * Clean alignments, Lucide icons, live status indicator, and responsive structure.
+ * Clean alignments, Lucide icons, live status indicator, dynamic theme switcher, and responsive structure.
  */
 
 import { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../hooks/useTheme';
+import { useToast } from '../context/ToastContext';
 import {
   LayoutDashboard,
   UploadCloud,
@@ -20,6 +22,8 @@ import {
   CheckCircle2,
   Terminal,
   ExternalLink,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { deviceCache } from '../utils/deviceCache';
 
@@ -34,6 +38,8 @@ const navItems = [
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
@@ -47,11 +53,29 @@ export default function Layout({ children }) {
 
   const handleLogout = () => {
     logout();
+    toast.info('Signed out successfully.');
     navigate('/');
   };
 
+  const handleBackup = () => {
+    try {
+      deviceCache.exportCacheAsJson();
+      toast.success('Local device cache memory backed up as JSON.');
+    } catch {
+      toast.error('Failed to export cache backup.');
+    }
+  };
+
+  const handleResetCache = () => {
+    if (window.confirm('Reset local cache back to clean state?')) {
+      deviceCache.resetToBaseline();
+      toast.info('Local cache reset to clean baseline.');
+      window.location.reload();
+    }
+  };
+
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--color-bg)' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--color-bg)', color: 'var(--color-text)' }}>
       {/* Mobile drawer backdrop */}
       {navOpen && <div className="app-sidebar-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />}
 
@@ -59,11 +83,12 @@ export default function Layout({ children }) {
       <aside className={`app-sidebar ${navOpen ? 'app-sidebar--open' : ''}`} style={{
         width: '260px',
         minWidth: '260px',
-        background: 'rgba(15, 23, 42, 0.98)',
+        background: 'var(--color-sidebar-bg)',
         borderRight: '1px solid var(--color-border)',
         display: 'flex',
         flexDirection: 'column',
         zIndex: 50,
+        transition: 'background-color 0.2s ease, border-color 0.2s ease',
       }}>
         {/* Brand / Logo Header */}
         <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)' }}>
@@ -82,12 +107,12 @@ export default function Layout({ children }) {
               <Shield size={22} />
             </div>
             <div>
-              <div style={{ fontWeight: 800, fontSize: '1.05rem', letterSpacing: '-0.02em', color: '#ffffff' }}>
+              <div style={{ fontWeight: 800, fontSize: '1.05rem', letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
                 AISecGuard
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.125rem' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} className="pulse-glow" />
-                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 500 }}>v0.5.0 · Online</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>v0.6.0 · Online</span>
               </div>
             </div>
           </div>
@@ -95,7 +120,7 @@ export default function Layout({ children }) {
 
         {/* Navigation Section */}
         <div style={{ padding: '1.25rem 0.875rem', flex: 1, overflowY: 'auto' }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', padding: '0 0.75rem 0.5rem' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-muted)', padding: '0 0.75rem 0.5rem' }}>
             Navigation
           </div>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -114,17 +139,17 @@ export default function Layout({ children }) {
                     borderRadius: 8,
                     fontSize: '0.875rem',
                     fontWeight: isActive ? 600 : 500,
-                    color: isActive ? '#ffffff' : '#94a3b8',
-                    background: isActive ? 'linear-gradient(90deg, rgba(37, 99, 235, 0.2), rgba(37, 99, 235, 0.05))' : 'transparent',
+                    color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    background: isActive ? (theme === 'dark' ? 'rgba(37, 99, 235, 0.15)' : 'rgba(37, 99, 235, 0.08)') : 'transparent',
                     textDecoration: 'none',
                     transition: 'all 0.15s ease',
-                    borderLeft: isActive ? '3px solid #3b82f6' : '3px solid transparent',
+                    borderLeft: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
                   })}
                 >
                   {({ isActive }) => (
                     <>
-                      <Icon size={18} style={{ color: isActive ? '#60a5fa' : '#64748b' }} />
-                      <span>{item.label}</span>
+                      <Icon size={18} style={{ color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)' }} />
+                      <span style={{ color: isActive ? (theme === 'dark' ? '#ffffff' : 'var(--color-primary)') : 'var(--color-text)' }}>{item.label}</span>
                     </>
                   )}
                 </NavLink>
@@ -132,7 +157,7 @@ export default function Layout({ children }) {
             })}
           </nav>
 
-          <div style={{ marginTop: '2rem', padding: '0 0.75rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b' }}>
+          <div style={{ marginTop: '2rem', padding: '0 0.75rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-muted)' }}>
             Quick Links
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -145,18 +170,18 @@ export default function Layout({ children }) {
                 padding: '0.65rem 0.875rem',
                 borderRadius: 8,
                 fontSize: '0.825rem',
-                color: '#94a3b8',
+                color: 'var(--color-text-muted)',
                 textDecoration: 'none',
                 transition: 'background 0.15s',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(51, 65, 85, 0.3)'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-card-subtle-bg)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Shield size={16} style={{ color: '#64748b' }} />
+                <Shield size={16} style={{ color: 'var(--color-text-muted)' }} />
                 <span>Public Homepage</span>
               </span>
-              <ExternalLink size={14} style={{ color: '#64748b' }} />
+              <ExternalLink size={14} style={{ color: 'var(--color-text-muted)' }} />
             </NavLink>
 
             <a
@@ -170,18 +195,18 @@ export default function Layout({ children }) {
                 padding: '0.65rem 0.875rem',
                 borderRadius: 8,
                 fontSize: '0.825rem',
-                color: '#94a3b8',
+                color: 'var(--color-text-muted)',
                 textDecoration: 'none',
                 transition: 'background 0.15s',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(51, 65, 85, 0.3)'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-card-subtle-bg)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Terminal size={16} style={{ color: '#64748b' }} />
+                <Terminal size={16} style={{ color: 'var(--color-text-muted)' }} />
                 <span>Swagger Docs</span>
               </span>
-              <ExternalLink size={14} style={{ color: '#64748b' }} />
+              <ExternalLink size={14} style={{ color: 'var(--color-text-muted)' }} />
             </a>
           </div>
         </div>
@@ -190,7 +215,8 @@ export default function Layout({ children }) {
         <div style={{
           padding: '1.25rem 1rem',
           borderTop: '1px solid var(--color-border)',
-          background: 'rgba(10, 15, 30, 0.6)',
+          background: 'var(--color-sidebar-footer-bg)',
+          transition: 'background-color 0.2s ease',
         }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -210,11 +236,11 @@ export default function Layout({ children }) {
                 {(user?.full_name || 'A')[0].toUpperCase()}
               </div>
               <div style={{ overflow: 'hidden' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {user?.full_name || 'Security Analyst'}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#2dd4bf', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#2dd4bf' }} />
+                <div style={{ fontSize: '0.72rem', color: '#0d9488', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#0d9488' }} />
                   <span>Local Device Cache</span>
                 </div>
               </div>
@@ -224,7 +250,7 @@ export default function Layout({ children }) {
               <button
                 className="btn btn-ghost"
                 style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', justifySelf: 'stretch' }}
-                onClick={() => deviceCache.exportCacheAsJson()}
+                onClick={handleBackup}
                 title="Download JSON copy of device cache memory"
               >
                 Backup
@@ -232,19 +258,14 @@ export default function Layout({ children }) {
               <button
                 className="btn btn-ghost"
                 style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', color: '#f87171', justifySelf: 'stretch' }}
-                onClick={() => {
-                  if (window.confirm('Reset local cache back to clean state?')) {
-                    deviceCache.resetToBaseline();
-                    window.location.reload();
-                  }
-                }}
+                onClick={handleResetCache}
                 title="Reset cache memory"
               >
                 Reset
               </button>
               <button
                 className="btn btn-ghost"
-                style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', color: '#94a3b8', justifySelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem', color: 'var(--color-text-muted)', justifySelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
                 onClick={handleLogout}
                 title="Sign out"
               >
@@ -262,14 +283,16 @@ export default function Layout({ children }) {
         <header style={{
           height: '60px',
           minHeight: '60px',
-          background: 'rgba(15, 23, 42, 0.75)',
+          background: 'var(--color-topbar-bg)',
           backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
           borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 2rem',
           gap: '0.75rem',
+          transition: 'background-color 0.2s ease, border-color 0.2s ease',
         }} className="app-topbar">
           <button
             type="button"
@@ -281,14 +304,43 @@ export default function Layout({ children }) {
             {navOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <div className="app-topbar-status" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
-            <span style={{ color: '#64748b' }}>Platform:</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
+            <span style={{ color: 'var(--color-text-muted)' }}>Platform:</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: 'var(--color-primary)', fontWeight: 500 }}>
               <CheckCircle2 size={15} style={{ color: '#10b981' }} />
               AISecGuard v0.6.0 · Active Protection
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {/* System-wide Light / Dark Theme Toggle Button */}
+            <button
+              id="btn-theme-toggle"
+              type="button"
+              className="btn btn-ghost"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} theme`}
+              style={{
+                fontSize: '0.8rem',
+                padding: '0.4rem 0.75rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                color: 'var(--color-text)',
+              }}
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun size={15} style={{ color: '#fbbf24' }} />
+                  <span>Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon size={15} style={{ color: '#6366f1' }} />
+                  <span>Dark</span>
+                </>
+              )}
+            </button>
+
             <button
               className="btn btn-primary"
               style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
@@ -301,7 +353,7 @@ export default function Layout({ children }) {
         </header>
 
         {/* Page Content Viewport */}
-        <main className="app-main" style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg)' }}>
+        <main className="app-main" style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg)', transition: 'background-color 0.2s ease' }}>
           {children}
         </main>
       </div>

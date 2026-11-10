@@ -16,6 +16,7 @@ Endpoints:
 import json
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import (
@@ -26,24 +27,27 @@ from fastapi import (
     File,
     Form,
     status,
+    BackgroundTasks,
+    Query,
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
 from app.db.session import get_db
+from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
 from app.models.provenance import ProvenanceRecord
 from app.models.scan import Scan
-from app.models.enums import ArtifactStatus, ArtifactType
+from app.models.enums import ArtifactStatus, ArtifactType, ScanStatus, RiskLevel
 from app.schemas.scan import (
     ScanRequest,
     ScanResponse,
     ScanDetailResponse,
     ScanListResponse,
 )
-from app.services.scan_service import run_scan
+from app.services.scan_service import run_scan, run_scan_in_background, get_scan_progress, set_scan_progress
 from app.utils.hashing import compute_sha256_file
 from app.utils.storage import build_safe_storage_path, save_upload
 
@@ -67,6 +71,8 @@ async def _process_upload_and_scan(
     expected_type: ArtifactType | None,
     source_url: str | None,
     db: Session,
+    background_tasks: BackgroundTasks | None = None,
+    sync: bool | None = None,
 ) -> Scan:
     """Validate upload, compute SHA-256, store safely, and execute scan."""
     if not file.filename:
@@ -143,6 +149,27 @@ async def _process_upload_and_scan(
     db.commit()
     db.refresh(artifact)
 
+    should_sync = sync if sync is not None else getattr(settings, "SYNC_SCANS", False)
+
+    if not should_sync and background_tasks is not None:
+        scan = Scan(
+            id=str(uuid.uuid4()),
+            artifact_id=artifact.id,
+            scan_type=detected_type.value,
+            status=ScanStatus.RUNNING.value,
+            risk_level=RiskLevel.UNKNOWN.value,
+            risk_score=0,
+            started_at=datetime.now(timezone.utc),
+        )
+        artifact.status = ArtifactStatus.SCANNING.value
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        set_scan_progress(scan.id, "QUEUED", 15, "Scan job queued for background processing")
+        background_tasks.add_task(run_scan_in_background, scan.id, artifact.id)
+        return scan
+
     try:
         scan = run_scan(artifact_id=artifact.id, db=db)
     except Exception as exc:
@@ -167,12 +194,42 @@ async def _process_upload_and_scan(
 )
 def create_scan(
     body: ScanRequest,
+    background_tasks: BackgroundTasks,
+    sync: bool | None = Query(None, description="Force synchronous execution if True"),
     db: Session = Depends(get_db),
 ):
     """
     Start a security scan for the specified artifact by ID.
-    Returns the completed scan with all findings and numeric risk_score.
+    Supports asynchronous execution via FastAPI BackgroundTasks with live progress streaming.
     """
+    artifact = db.get(Artifact, body.artifact_id)
+    if artifact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artifact not found: {body.artifact_id}",
+        )
+
+    should_sync = sync if sync is not None else getattr(settings, "SYNC_SCANS", False)
+
+    if not should_sync:
+        scan = Scan(
+            id=str(uuid.uuid4()),
+            artifact_id=artifact.id,
+            scan_type=artifact.artifact_type,
+            status=ScanStatus.RUNNING.value,
+            risk_level=RiskLevel.UNKNOWN.value,
+            risk_score=0,
+            started_at=datetime.now(timezone.utc),
+        )
+        artifact.status = ArtifactStatus.SCANNING.value
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        set_scan_progress(scan.id, "QUEUED", 15, "Scan job queued for background processing")
+        background_tasks.add_task(run_scan_in_background, scan.id, artifact.id)
+        return scan
+
     try:
         scan = run_scan(artifact_id=body.artifact_id, db=db)
     except ValueError as exc:
@@ -201,12 +258,14 @@ def create_scan(
     summary="Upload and scan a model artifact directly",
 )
 async def scan_model_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Model file (.pkl, .pt, .onnx, .safetensors, .h5, etc.)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Upload a model artifact, calculate SHA-256, run model scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db, background_tasks, sync)
 
 
 @router.post(
@@ -216,12 +275,14 @@ async def scan_model_endpoint(
     summary="Upload and scan a dataset artifact directly",
 )
 async def scan_dataset_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Dataset file (.csv, .json, .parquet, .jsonl)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Upload a dataset artifact, calculate SHA-256, run dataset scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db, background_tasks, sync)
 
 
 @router.post(
@@ -231,12 +292,14 @@ async def scan_dataset_endpoint(
     summary="Upload and scan a dependency file directly",
 )
 async def scan_dependency_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Dependency file (requirements.txt, pyproject.toml)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Upload a dependency file, calculate SHA-256, run dependency scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db, background_tasks, sync)
 
 
 @router.post(
@@ -246,12 +309,14 @@ async def scan_dependency_endpoint(
     summary="Upload and scan any supported AI/ML artifact directly",
 )
 async def scan_upload_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Any supported AI/ML artifact file"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Upload any supported artifact, auto-detect its type, scan it, and return findings."""
-    return await _process_upload_and_scan(file, None, source_url, db)
+    return await _process_upload_and_scan(file, None, source_url, db, background_tasks, sync)
 
 
 # ---------------------------------------------------------------------------

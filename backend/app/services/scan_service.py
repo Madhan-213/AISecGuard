@@ -44,10 +44,49 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Real-time scan progress tracker (in-memory for SSE and live monitors)
+# ---------------------------------------------------------------------------
+SCAN_PROGRESS: dict[str, dict[str, Any]] = {}
+
+def get_scan_progress(scan_id: str) -> dict[str, Any] | None:
+    """Return real-time progress for an active or recently completed scan."""
+    return SCAN_PROGRESS.get(scan_id)
+
+def set_scan_progress(
+    scan_id: str,
+    phase: str,
+    progress: int,
+    message: str,
+    risk_level: str | None = None,
+    risk_score: int | None = None,
+) -> None:
+    """Update in-memory progress for an active scan."""
+    data = {
+        "phase": phase,
+        "progress": progress,
+        "message": message,
+    }
+    if risk_level is not None:
+        data["risk_level"] = risk_level
+    if risk_score is not None:
+        data["risk_score"] = risk_score
+    SCAN_PROGRESS[scan_id] = data
+
+
+def run_scan_in_background(scan_id: str, artifact_id: str) -> None:
+    """Execute scan pipeline in a background worker task with its own database session."""
+    from app.db.session import SessionLocal
+    with SessionLocal() as db:
+        try:
+            run_scan(artifact_id=artifact_id, db=db, existing_scan_id=scan_id)
+        except Exception as exc:
+            logger.error("[SCAN-BACKGROUND-ERROR] Background scan %s failed: %s", scan_id, exc, exc_info=True)
+
+# ---------------------------------------------------------------------------
 # Main scan pipeline
 # ---------------------------------------------------------------------------
 
-def run_scan(artifact_id: str, db: Session) -> Scan:
+def run_scan(artifact_id: str, db: Session, existing_scan_id: str | None = None) -> Scan:
     """
     Execute the full security scan pipeline for an artifact.
 
@@ -79,17 +118,34 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         (artifact.sha256[:16] if artifact.sha256 else "N/A"),
     )
 
-    # --- Step 2: Create scan record ---
-    scan = Scan(
-        id=str(uuid.uuid4()),
-        artifact_id=artifact_id,
-        scan_type=artifact.artifact_type,  # MODEL / DATASET / DEPENDENCY
-        status=ScanStatus.RUNNING.value,
-        risk_level=RiskLevel.UNKNOWN.value,
-        risk_score=0,
-        started_at=datetime.now(timezone.utc),
-    )
-    db.add(scan)
+    # --- Step 2: Create or load scan record ---
+    if existing_scan_id:
+        scan = db.get(Scan, existing_scan_id)
+        if scan is None:
+            scan = Scan(
+                id=existing_scan_id,
+                artifact_id=artifact_id,
+                scan_type=artifact.artifact_type,
+                status=ScanStatus.RUNNING.value,
+                risk_level=RiskLevel.UNKNOWN.value,
+                risk_score=0,
+                started_at=datetime.now(timezone.utc),
+            )
+            db.add(scan)
+        else:
+            scan.status = ScanStatus.RUNNING.value
+            scan.started_at = datetime.now(timezone.utc)
+    else:
+        scan = Scan(
+            id=str(uuid.uuid4()),
+            artifact_id=artifact_id,
+            scan_type=artifact.artifact_type,
+            status=ScanStatus.RUNNING.value,
+            risk_level=RiskLevel.UNKNOWN.value,
+            risk_score=0,
+            started_at=datetime.now(timezone.utc),
+        )
+        db.add(scan)
 
     # A quarantined artifact stays quarantined while it is re-scanned; only a release changes that.
     was_quarantined = artifact.status == ArtifactStatus.QUARANTINED.value
@@ -103,12 +159,14 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         scan.id, scan.scan_type
     )
 
+    set_scan_progress(scan.id, "QUEUED", 15, "Scan job accepted and scheduled")
     findings_data: list[dict] = []
 
     try:
         storage_path = Path(artifact.storage_path)
 
         # --- Step 3: Integrity checks against the upload baseline (PROV-001..003) ---
+        set_scan_progress(scan.id, "PROVENANCE_CHECK", 30, "Verifying artifact SHA-256 integrity and baseline")
         t0 = time.monotonic()
         logger.info(
             "[SCAN-PHASE] Phase 1/4: Integrity checks (SHA-256, provenance baseline, substitution detection)"
@@ -121,6 +179,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         )
 
         # --- Step 4: Type-specific scanner (looked up in the registry) ---
+        set_scan_progress(scan.id, "SCANNER_RUNNING", 60, f"Executing {artifact.artifact_type} static security scanner")
         t0 = time.monotonic()
         logger.info(
             "[SCAN-PHASE] Phase 2/4: Running %s static scanner | file=%s | size=%d bytes",
@@ -134,6 +193,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         )
 
         # --- Step 4b: Lineage-aware checks (upstream risk, dataset version diff) ---
+        set_scan_progress(scan.id, "RISK_CALC", 85, "Calculating aggregate threat score and severity weights")
         t0 = time.monotonic()
         logger.info(
             "[SCAN-PHASE] Phase 3/4: Lineage checks (upstream risk propagation, dataset version diff)"
@@ -192,6 +252,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
         db.commit()
         db.refresh(scan)
 
+        set_scan_progress(scan.id, "COMPLETED", 100, "Scan completed", risk_level=risk_level.value, risk_score=risk_score)
         logger.info(
             "[SCAN-COMPLETE] Scan finished | scan_id=%s | artifact=%s | risk=%s | score=%d | "
             "total_findings=%d | duration=%.3fs",
@@ -206,6 +267,7 @@ def run_scan(artifact_id: str, db: Session) -> Scan:
             "[SCAN-FAILED] Scan pipeline failed | scan_id=%s | artifact=%s | error=%s | elapsed=%.3fs",
             scan.id, artifact_id, str(exc), elapsed, exc_info=True
         )
+        set_scan_progress(scan.id, "FAILED", 100, f"Scan failed: {exc}")
         scan.status = ScanStatus.FAILED.value
         scan.completed_at = datetime.now(timezone.utc)
         artifact.status = ArtifactStatus.QUARANTINED.value if was_quarantined else ArtifactStatus.FAILED.value

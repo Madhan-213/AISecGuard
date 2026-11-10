@@ -11,10 +11,11 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
 from app.models.provenance import ProvenanceRecord
@@ -62,7 +63,9 @@ def _get_extension_map() -> dict[str, ArtifactType]:
         "The original filename is preserved in metadata only."
     ),
 )
+@limiter.limit("30/minute")
 async def upload_artifact(
+    request: Request,
     file: UploadFile = File(..., description="The artifact file to upload"),
     source_url: str | None = Form(None, description="Optional URL where artifact was obtained"),
     expected_sha256: str | None = Form(

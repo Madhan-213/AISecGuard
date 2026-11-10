@@ -33,6 +33,9 @@ numpy>=1.26.0
 scipy>=1.12.0
 packaging>=24.0
 
+# --- Reporting & Export ---
+reportlab>=4.0.0
+
 # --- Testing ---
 pytest>=8.0.0
 httpx>=0.26.0

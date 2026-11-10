@@ -130,3 +130,22 @@ def test_scan_json_dataset():
         assert result.column_count == 2
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def test_scan_cell_formula_injection_csv():
+    """Verify detection of cell-level formula injection in data rows."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", mode="w", delete=False) as f:
+        f.write("id,title,payload\n")
+        f.write("1,item_one,normal text\n")
+        f.write("2,item_two,=cmd|' /C calc'!A0\n")
+        f.write("3,item_three,@SUM(1+1)\n")
+        temp_path = Path(f.name)
+
+    try:
+        result = scan_dataset_file(temp_path)
+        formula_findings = [f for f in result.findings if f.rule_id == "DATA-012"]
+        assert len(formula_findings) == 1
+        assert formula_findings[0].severity.value == "HIGH"
+        assert "=cmd|" in formula_findings[0].evidence
+    finally:
+        temp_path.unlink(missing_ok=True)

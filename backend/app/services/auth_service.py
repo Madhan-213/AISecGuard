@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.user import User
+from app.models.enums import UserRole
 
 # Dummy hash for constant-time comparison when user not found
 DUMMY_BCRYPT_HASH = "$2b$12$e8NdwKOGz1n8.L1XvS07..gqf0uD7W9uC1k8k2u71mQ/U1p4K6Q7K"
@@ -126,23 +127,39 @@ def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
 
-def create_user(db: Session, email: str, password: str, full_name: str = "") -> User:
+def create_user(
+    db: Session,
+    email: str,
+    password: str,
+    full_name: str = "",
+    role: Optional[str] = None,
+) -> User:
     """
     Create a new user account.
 
+    Args:
+        role: Optional role string (ADMIN/ANALYST/AUDITOR). Defaults to ANALYST.
+
     Raises:
-        ValueError: if email is already registered.
+        ValueError: if email is already registered or role is invalid.
     """
     email = email.lower().strip()
     if get_user_by_email(db, email):
         raise ValueError(f"Email already registered: {email}")
+
+    # Validate and normalize role
+    valid_roles = {r.value for r in UserRole}
+    resolved_role = (role or UserRole.ANALYST.value).upper()
+    if resolved_role not in valid_roles:
+        raise ValueError(f"Invalid role '{role}'. Must be one of: {', '.join(sorted(valid_roles))}")
 
     user = User(
         email=email,
         hashed_password=hash_password(password),
         full_name=full_name or None,
         is_active=True,
-        is_admin=False,
+        is_admin=(resolved_role == UserRole.ADMIN.value),
+        role=resolved_role,
     )
     db.add(user)
     db.commit()

@@ -42,6 +42,7 @@ class ScanResponse(BaseModel):
     risk_score: int = 0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    job_id: Optional[str] = None
 
 
 class ScanDetailResponse(BaseModel):
@@ -57,6 +58,7 @@ class ScanDetailResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     findings: list[FindingResponse] = []
+    job_id: Optional[str] = None
 
 
 class ScanListResponse(BaseModel):

@@ -54,6 +54,10 @@ class Scan(Base):
 
     # Relationships
     artifact: Mapped["Artifact"] = relationship("Artifact", back_populates="scans")
+    @property
+    def job_id(self) -> str:
+        return self.id
+
     findings: Mapped[list["Finding"]] = relationship(
         "Finding", back_populates="scan", cascade="all, delete-orphan"
     )
