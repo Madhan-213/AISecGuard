@@ -5,15 +5,15 @@
    ============================================================ */
 
 :root {
-  /* Palette: Deep Slate & Precision */
-  --color-bg: #0F172A;
-  --color-bg-darker: #0B1120;
-  --color-surface: #1E293B;
-  --color-surface-card: rgba(30, 41, 59, 0.7);
-  --color-border: #334155;
+  /* ── Palette: Deep Navy & Precision ───────── */
+  --color-bg: #080e1c;
+  --color-bg-darker: #050a14;
+  --color-surface: #111b2e;
+  --color-surface-card: rgba(17, 27, 46, 0.80);
+  --color-border: #1e2d45;
   --color-border-highlight: #3B82F6;
-  --color-text: #F8FAFC;
-  --color-text-muted: #94A3B8;
+  --color-text: #F0F4FC;
+  --color-text-muted: #8094b4;
   --color-primary: #3B82F6;
   --color-primary-hover: #2563EB;
   --color-cyan: #06B6D4;
@@ -21,6 +21,9 @@
   --color-danger: #EF4444;
   --color-warning: #F59E0B;
   --color-success: #10B981;
+  /* ── Sidebar ─────────────────────────────── */
+  --color-sidebar-bg: #0d1526;
+  --color-topbar-bg: rgba(8, 14, 28, 0.80);
 }
 
 * {
@@ -39,6 +42,13 @@ html, body, #root {
   color: var(--color-text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dot-grid on main content pages */
+main {
+  background-image: radial-gradient(rgba(59,130,246,0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-color: var(--color-bg);
 }
 
 code, pre, .font-mono {
@@ -67,13 +77,13 @@ code, pre, .font-mono {
 
 /* Professional Glass Cards */
 .card {
-  background: var(--color-surface-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+  background: rgba(13, 21, 38, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(30, 45, 69, 0.9);
+  border-radius: 14px;
   padding: 1.5rem;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255,255,255,0.03) inset;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
