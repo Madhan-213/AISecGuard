@@ -19,9 +19,13 @@ import {
   Users,
   Gauge,
   UserCheck,
+  Sun,
+  Moon,
+  Palette,
 } from 'lucide-react';
 import { API_ORIGIN, apiErrorMessage, apiKeysApi, authApi, systemApi } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../hooks/useTheme';
 
 const muted = { fontSize: '0.82rem', color: 'var(--color-text-muted)' };
 const h2 = { fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)' };
@@ -57,6 +61,7 @@ function Row({ label, children }) {
 
 export default function SettingsPage() {
   const toast = useToast();
+  const { theme, setTheme } = useTheme();
   const [info, setInfo] = useState(null);
   const [user, setUser] = useState(null);
   const [keys, setKeys] = useState([]);
@@ -139,6 +144,88 @@ export default function SettingsPage() {
             No. Every scanner runs entirely on this server via static inspection (zero-execution AST & opcode parsing), so no OpenAI, Anthropic, or Hugging Face API keys are ever required.
             The keys configured below are AISecGuard&apos;s internal API keys for automated CI/CD pipeline integration.
           </p>
+        </div>
+      </div>
+
+      {/* Appearance & Theme Card */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Palette size={18} style={{ color: 'var(--color-primary)' }} />
+            <h2 style={h2}>Appearance & Interface Theme</h2>
+          </div>
+          <span className="badge badge-info">
+            ACTIVE: {theme.toUpperCase()} MODE
+          </span>
+        </div>
+        <p style={{ ...muted, marginBottom: '1.25rem' }}>
+          Select your visual workspace theme. Preferences are automatically persisted across browser sessions.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+          {/* Light Theme Card */}
+          <div
+            onClick={() => {
+              setTheme('light');
+              toast.success('Switched to Modern Light Theme');
+            }}
+            style={{
+              padding: '1.2rem',
+              borderRadius: 10,
+              border: `2px solid ${theme === 'light' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+              background: '#FFFFFF',
+              color: '#1A2332',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+              boxShadow: theme === 'light' ? '0 4px 16px rgba(79, 126, 247, 0.15)' : 'none',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                <Sun size={18} style={{ color: '#F59E0B' }} />
+                <span>Modern Light (Default)</span>
+              </div>
+              {theme === 'light' && <Check size={16} style={{ color: 'var(--color-primary)' }} />}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#6B7A8D' }}>
+              Clean, high-clarity SaaS interface matching enterprise security management standards.
+            </div>
+          </div>
+
+          {/* Dark Theme Card */}
+          <div
+            onClick={() => {
+              setTheme('dark');
+              toast.success('Switched to Precision Dark Theme');
+            }}
+            style={{
+              padding: '1.2rem',
+              borderRadius: 10,
+              border: `2px solid ${theme === 'dark' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+              background: '#1E293B',
+              color: '#F1F5F9',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+              boxShadow: theme === 'dark' ? '0 4px 16px rgba(96, 165, 250, 0.2)' : 'none',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                <Moon size={18} style={{ color: '#818CF8' }} />
+                <span>Precision Dark</span>
+              </div>
+              {theme === 'dark' && <Check size={16} style={{ color: 'var(--color-primary)' }} />}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
+              Low-glare, dark telemetry aesthetic optimized for NOCs and extended security audits.
+            </div>
+          </div>
         </div>
       </div>
 
@@ -371,6 +458,28 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+
+          {/* Branded Project Card */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+              borderRadius: 12,
+              padding: '1.25rem 1rem',
+              color: '#ffffff',
+              textAlign: 'center',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+            }}
+          >
+            <img
+              src="/logos/logo-horizontal-trans.png"
+              alt="AISecGuard Platform"
+              style={{ maxHeight: 44, maxWidth: '90%', margin: '0 auto 0.65rem', objectFit: 'contain' }}
+            />
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', letterSpacing: '0.04em' }}>
+              MCA Final Year Project · AI Supply Chain Security Framework
+            </div>
+          </div>
         </div>
       </div>
     </div>

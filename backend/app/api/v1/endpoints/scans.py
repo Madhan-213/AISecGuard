@@ -35,11 +35,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user
 from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
 from app.models.provenance import ProvenanceRecord
 from app.models.scan import Scan
+from app.models.user import User
 from app.models.enums import ArtifactStatus, ArtifactType, ScanStatus, RiskLevel
 from app.schemas.scan import (
     ScanRequest,
@@ -73,6 +75,7 @@ async def _process_upload_and_scan(
     db: Session,
     background_tasks: BackgroundTasks | None = None,
     sync: bool | None = None,
+    current_user: User | None = None,
 ) -> Scan:
     """Validate upload, compute SHA-256, store safely, and execute scan."""
     if not file.filename:
@@ -134,6 +137,7 @@ async def _process_upload_and_scan(
         sha256=sha256_hash,
         storage_path=storage_path,
         status=ArtifactStatus.PENDING_SCAN.value,
+        user_id=current_user.id if current_user else None,
     )
     db.add(artifact)
 
@@ -143,7 +147,7 @@ async def _process_upload_and_scan(
         source_url=source_url,
         sha256_hash=sha256_hash,
         file_size=len(content),
-        uploader_id=None,
+        uploader_id=current_user.id if current_user else None,
     )
     db.add(provenance)
     db.commit()
@@ -160,6 +164,7 @@ async def _process_upload_and_scan(
             risk_level=RiskLevel.UNKNOWN.value,
             risk_score=0,
             started_at=datetime.now(timezone.utc),
+            user_id=current_user.id if current_user else None,
         )
         artifact.status = ArtifactStatus.SCANNING.value
         db.add(scan)
@@ -262,10 +267,11 @@ async def scan_model_endpoint(
     file: UploadFile = File(..., description="Model file (.pkl, .pt, .onnx, .safetensors, .h5, etc.)"),
     source_url: str | None = Form(None),
     sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a model artifact, calculate SHA-256, run model scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db, background_tasks, sync)
+    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -279,10 +285,11 @@ async def scan_dataset_endpoint(
     file: UploadFile = File(..., description="Dataset file (.csv, .json, .parquet, .jsonl)"),
     source_url: str | None = Form(None),
     sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a dataset artifact, calculate SHA-256, run dataset scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db, background_tasks, sync)
+    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -296,10 +303,11 @@ async def scan_dependency_endpoint(
     file: UploadFile = File(..., description="Dependency file (requirements.txt, pyproject.toml)"),
     source_url: str | None = Form(None),
     sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a dependency file, calculate SHA-256, run dependency scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db, background_tasks, sync)
+    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -313,10 +321,11 @@ async def scan_upload_endpoint(
     file: UploadFile = File(..., description="Any supported AI/ML artifact file"),
     source_url: str | None = Form(None),
     sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload any supported artifact, auto-detect its type, scan it, and return findings."""
-    return await _process_upload_and_scan(file, None, source_url, db, background_tasks, sync)
+    return await _process_upload_and_scan(file, None, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -331,12 +340,20 @@ async def scan_upload_endpoint(
 def list_scans(
     skip: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a paginated list of all scans."""
-    total = db.execute(select(func.count(Scan.id))).scalar_one()
+    """Return a paginated list of scans belonging to the authenticated user."""
+    query = select(Scan)
+    count_query = select(func.count(Scan.id))
+
+    if current_user:
+        query = query.where(Scan.user_id == current_user.id)
+        count_query = count_query.where(Scan.user_id == current_user.id)
+
+    total = db.execute(count_query).scalar_one()
     scans = db.execute(
-        select(Scan).offset(skip).limit(limit).order_by(Scan.started_at.desc())
+        query.offset(skip).limit(limit).order_by(Scan.started_at.desc())
     ).scalars().all()
     return ScanListResponse(total=total, scans=list(scans))
 

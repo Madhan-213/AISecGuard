@@ -73,7 +73,7 @@ export default function ScansPage() {
   });
 
   return (
-    <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1200, margin: '0 auto' }}>
+    <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: '100%', margin: '0 auto' }}>
       {/* ── Title & Toolbar ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>

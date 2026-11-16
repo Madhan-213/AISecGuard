@@ -51,6 +51,9 @@ class Scan(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
 
     # Relationships
     artifact: Mapped["Artifact"] = relationship("Artifact", back_populates="scans")

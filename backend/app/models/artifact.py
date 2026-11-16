@@ -45,6 +45,9 @@ class Artifact(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
 
     # Relationships
     provenance_records: Mapped[list["ProvenanceRecord"]] = relationship(

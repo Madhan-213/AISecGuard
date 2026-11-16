@@ -158,7 +158,7 @@ def create_user(
         hashed_password=hash_password(password),
         full_name=full_name or None,
         is_active=True,
-        is_admin=(resolved_role == UserRole.ADMIN.value),
+        is_admin=True,  # Full access to their own workspace and features
         role=resolved_role,
     )
     db.add(user)

@@ -149,6 +149,19 @@ def _generate_pdf(report: dict) -> bytes:
 
         story = []
 
+        # Brand Logo if available
+        try:
+            from pathlib import Path
+            from reportlab.platypus import Image as RLImage
+            logo_p = Path(__file__).resolve().parents[4] / "static" / "logos" / "logo-horizontal.png"
+            if not logo_p.exists():
+                logo_p = Path(__file__).resolve().parents[4] / "static" / "logos" / "logo-icon.png"
+            if logo_p.exists():
+                story.append(RLImage(str(logo_p), width=5.5*cm, height=1.65*cm))
+                story.append(Spacer(1, 0.2*cm))
+        except Exception:
+            pass
+
         # Title
         story.append(Paragraph("AISecGuard — Security Scan Report", title_style))
         story.append(Paragraph(

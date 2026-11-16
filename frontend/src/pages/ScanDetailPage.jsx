@@ -336,6 +336,11 @@ export default function ScanDetailPage() {
       {/* Header Info */}
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <img
+            src="/logos/logo-shield.png"
+            alt="AISecGuard Shield"
+            style={{ width: 34, height: 34, objectFit: 'contain', flexShrink: 0 }}
+          />
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>
             Inspection Report
           </h1>
@@ -349,7 +354,7 @@ export default function ScanDetailPage() {
       </div>
 
       {/* Top Metrics: Risk Score Gauge + Artifact Metadata */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 2fr', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div className="scan-detail-top-grid">
         {/* Risk Score Circular Gauge */}
         <div className="card" style={{
           display: 'flex',

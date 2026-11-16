@@ -15,18 +15,15 @@ function getInitialTheme() {
   } catch {
     // Local storage unavailable
   }
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  // Default to dark for security dashboard
-  return 'dark';
+  // Default to clean modern light theme as requested
+  return 'light';
 }
 
 export const ThemeContext = createContext({
-  theme: 'dark',
+  theme: 'light',
   toggleTheme: () => {},
   setTheme: () => {},
-  isDark: true,
+  isDark: false,
 });
 
 export function ThemeProvider({ children }) {

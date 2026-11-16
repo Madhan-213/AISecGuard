@@ -4,8 +4,8 @@
  * public homepage, login/register, and scroll restoration.
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
 import Layout from './components/Layout';
@@ -22,9 +22,26 @@ import SettingsPage from './pages/SettingsPage';
 import ScanProgressPage from './pages/ScanProgressPage';
 
 /**
- * Wrap dashboard-area pages in the sidebar Layout.
+ * Authentication and authorization guard wrapping protected dashboard pages.
+ * Redirects unauthenticated sessions to /login.
  */
 function AppShell({ children }) {
+  const { loading, isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '1rem', background: 'var(--color-bg)' }}>
+        <span className="spinner" style={{ width: 36, height: 36 }} />
+        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Verifying security credentials…</span>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
   return <Layout>{children}</Layout>;
 }
 

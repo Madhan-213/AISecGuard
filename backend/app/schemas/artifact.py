@@ -21,6 +21,7 @@ class ArtifactResponse(BaseModel):
     sha256: str
     status: ArtifactStatus
     uploaded_at: datetime
+    user_id: str | None = None
 
 
 class ArtifactListResponse(BaseModel):

@@ -574,8 +574,12 @@ export default function HomePage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
             <div>
               <div className="flex items-center gap-2.5 mb-3">
-                <Shield size={18} className="text-hp-accent" />
-                <span className="font-bold text-hp-fg">AISecGuard</span>
+                <img
+                  src="/logos/logo-icon.png"
+                  alt="AISecGuard"
+                  className="w-7 h-7 rounded-md object-contain shrink-0"
+                />
+                <span className="font-bold text-hp-fg tracking-tight">AISecGuard</span>
               </div>
               <p className="text-sm text-hp-muted leading-relaxed max-w-xs">
                 Static security scanning for AI models, datasets and dependencies. MCA Final Year Project.

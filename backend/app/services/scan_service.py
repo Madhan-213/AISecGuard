@@ -130,11 +130,14 @@ def run_scan(artifact_id: str, db: Session, existing_scan_id: str | None = None)
                 risk_level=RiskLevel.UNKNOWN.value,
                 risk_score=0,
                 started_at=datetime.now(timezone.utc),
+                user_id=artifact.user_id,
             )
             db.add(scan)
         else:
             scan.status = ScanStatus.RUNNING.value
             scan.started_at = datetime.now(timezone.utc)
+            if artifact.user_id and not scan.user_id:
+                scan.user_id = artifact.user_id
     else:
         scan = Scan(
             id=str(uuid.uuid4()),
@@ -144,6 +147,7 @@ def run_scan(artifact_id: str, db: Session, existing_scan_id: str | None = None)
             risk_level=RiskLevel.UNKNOWN.value,
             risk_score=0,
             started_at=datetime.now(timezone.utc),
+            user_id=artifact.user_id,
         )
         db.add(scan)
 

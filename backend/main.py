@@ -10,6 +10,16 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqladmin import Admin
+from app.admin.views import (
+    AdminAuth,
+    UserAdmin,
+    ArtifactAdmin,
+    ScanAdmin,
+    FindingAdmin,
+    LineageAdmin,
+    SignatureAdmin,
+)
 
 # Task 4b: Rate limiting
 try:
@@ -95,8 +105,9 @@ async def lifespan(application: FastAPI):
 
     from app.db.session import engine
     from app.db.base import Base
-    Base.metadata.create_all(bind=engine)
-    logger.info("[STARTUP] Database tables ensured [OK]")
+    from app.db.init_db import init_db
+    init_db(engine)
+    logger.info("[STARTUP] Database tables and default accounts ensured [OK]")
 
 
     # Task 4a: Add role column to users table if missing (SQLite ALTER TABLE migration)
@@ -122,6 +133,33 @@ async def lifespan(application: FastAPI):
                 conn.execute(text("ALTER TABLE provenance_records ADD COLUMN expected_sha256 VARCHAR(64)"))
                 conn.commit()
                 logger.info("[STARTUP] Added missing expected_sha256 column to provenance_records [OK]")
+
+            # Add user_id to artifacts table if missing
+            art_res = conn.execute(text("PRAGMA table_info(artifacts)"))
+            art_cols = [r[1] for r in art_res.fetchall()]
+            if art_cols and "user_id" not in art_cols:
+                conn.execute(text("ALTER TABLE artifacts ADD COLUMN user_id VARCHAR(36)"))
+                conn.commit()
+                logger.info("[STARTUP] Added missing user_id column to artifacts table [OK]")
+
+            # Add user_id and risk_score to scans table if missing
+            scan_res = conn.execute(text("PRAGMA table_info(scans)"))
+            scan_cols = [r[1] for r in scan_res.fetchall()]
+            if scan_cols and "user_id" not in scan_cols:
+                conn.execute(text("ALTER TABLE scans ADD COLUMN user_id VARCHAR(36)"))
+                conn.commit()
+                logger.info("[STARTUP] Added missing user_id column to scans table [OK]")
+            if scan_cols and "risk_score" not in scan_cols:
+                conn.execute(text("ALTER TABLE scans ADD COLUMN risk_score INTEGER DEFAULT 0"))
+                conn.commit()
+                logger.info("[STARTUP] Added missing risk_score column to scans table [OK]")
+            # Add rule_id to findings table if missing
+            find_res = conn.execute(text("PRAGMA table_info(findings)"))
+            find_cols = [r[1] for r in find_res.fetchall()]
+            if find_cols and "rule_id" not in find_cols:
+                conn.execute(text("ALTER TABLE findings ADD COLUMN rule_id VARCHAR(100)"))
+                conn.commit()
+                logger.info("[STARTUP] Added missing rule_id column to findings table [OK]")
     except Exception as exc:
         logger.debug("[STARTUP] Schema pragma check: %s", exc)
 
@@ -155,6 +193,17 @@ def create_application() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Session middleware — required by SQLAdmin authentication
+    from starlette.middleware.sessions import SessionMiddleware
+    application.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.SECRET_KEY,
+        session_cookie="aisecguard_admin_session",
+        max_age=3600,          # 1-hour admin session
+        same_site="lax",
+        https_only=False,      # set True in production with HTTPS
+    )
+
 
     # Task 4b: Attach rate limiter
     if limiter is not None:
@@ -163,6 +212,32 @@ def create_application() -> FastAPI:
 
     # Include API routers
     application.include_router(api_router)
+
+    # Mount static assets for logos & admin assets
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+    static_logos_dir = Path(__file__).resolve().parent / "static" / "logos"
+    if static_logos_dir.exists():
+        application.mount("/logos", StaticFiles(directory=str(static_logos_dir)), name="logos")
+
+    # ── SQLAdmin panel at /admin ─────────────────────────────────────────
+    from app.db.session import engine as _engine
+    _auth_backend = AdminAuth(secret_key=settings.SECRET_KEY)
+    _admin = Admin(
+        application,
+        engine=_engine,
+        authentication_backend=_auth_backend,
+        title="AISecGuard Admin",
+        base_url="/admin",
+        logo_url="/logos/logo-icon.png",
+    )
+    _admin.add_view(UserAdmin)
+    _admin.add_view(ArtifactAdmin)
+    _admin.add_view(ScanAdmin)
+    _admin.add_view(FindingAdmin)
+    _admin.add_view(LineageAdmin)
+    _admin.add_view(SignatureAdmin)
+    logger.info("[STARTUP] Admin panel mounted at /admin")
 
     # Locate and serve compiled React frontend if distribution directory exists (Docker / Production)
     from pathlib import Path
