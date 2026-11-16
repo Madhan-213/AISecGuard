@@ -102,7 +102,9 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     Raises HTTP 403 if user is not admin.
     Use as: `admin: User = Depends(get_current_admin)`
     """
-    if not current_user.is_admin:
+    if current_user.id == LOCAL_ANALYST_ID:
+        return current_user
+    if not current_user.is_admin and current_user.role != UserRole.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
@@ -118,8 +120,9 @@ def require_role(*roles: UserRole) -> Callable:
     """
     Factory that returns a FastAPI dependency enforcing one of the given roles.
 
-    In NO_LOGIN_REQUIRED (standalone) mode, the local analyst has full
-    admin-equivalent access and the role check is skipped.
+    In NO_LOGIN_REQUIRED (standalone) mode without a token, the local analyst
+    has full admin-equivalent access. When an authenticated user token is present,
+    their actual account role is verified against allowed roles.
 
     Usage:
         @router.post("/...", dependencies=[Depends(require_role(UserRole.ANALYST, UserRole.ADMIN))])
@@ -127,13 +130,13 @@ def require_role(*roles: UserRole) -> Callable:
     allowed = {r.value for r in roles}
 
     def _dep(user: User = Depends(get_current_user)) -> User:
-        from app.core.config import settings
-        if getattr(settings, "NO_LOGIN_REQUIRED", True):
+        # Standalone anonymous mode without credentials bypasses checks
+        if user.id == LOCAL_ANALYST_ID:
             return user
         if user.role not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions. Required role(s): {', '.join(sorted(allowed))}",
+                detail=f"Insufficient permissions. Required role(s): {', '.join(sorted(allowed))}. Your role is '{user.role}'.",
             )
         return user
 

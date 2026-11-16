@@ -15,9 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user
 from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
+from app.models.user import User
 from app.models.provenance import ProvenanceRecord
 from app.models.enums import ArtifactType, ArtifactStatus
 from app.schemas.artifact import ArtifactResponse, ArtifactListResponse
@@ -71,6 +73,7 @@ async def upload_artifact(
     expected_sha256: str | None = Form(
         None, description="Optional SHA-256 the file should have (e.g. as published by the model hub)"
     ),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload an artifact and create its provenance baseline."""
@@ -145,6 +148,7 @@ async def upload_artifact(
         sha256=sha256,
         storage_path=storage_path,
         status=ArtifactStatus.PENDING_SCAN.value,
+        user_id=current_user.id if current_user else None,
     )
     db.add(artifact)
 
@@ -156,7 +160,7 @@ async def upload_artifact(
         sha256_hash=sha256,
         expected_sha256=expected_sha256 or None,
         file_size=len(content),
-        uploader_id=None,  # Authentication not implemented in Week 3
+        uploader_id=current_user.id if current_user else None,
     )
     db.add(provenance)
     db.commit()
@@ -183,14 +187,23 @@ def compute_sha256_bytes_local(data: bytes) -> str:
 def list_artifacts(
     skip: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a paginated list of all uploaded artifacts."""
+    """Return a paginated list of all uploaded artifacts for the authenticated user."""
     from sqlalchemy import select, func
 
-    total = db.execute(select(func.count(Artifact.id))).scalar_one()
+    query = select(Artifact)
+    if current_user:
+        query = query.where(Artifact.user_id == current_user.id)
+
+    count_query = select(func.count(Artifact.id))
+    if current_user:
+        count_query = count_query.where(Artifact.user_id == current_user.id)
+
+    total = db.execute(count_query).scalar_one()
     artifacts = db.execute(
-        select(Artifact).offset(skip).limit(limit).order_by(Artifact.uploaded_at.desc())
+        query.offset(skip).limit(limit).order_by(Artifact.uploaded_at.desc())
     ).scalars().all()
 
     return ArtifactListResponse(total=total, artifacts=list(artifacts))

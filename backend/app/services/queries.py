@@ -45,13 +45,15 @@ def plain(value) -> str:
     return getattr(value, "value", value)
 
 
-def latest_scan_ids(db: Session) -> list[str]:
-    """ID of the most recent completed scan of every artifact."""
-    rows = (
-        db.query(Scan.id, Scan.artifact_id, Scan.completed_at)
-        .filter(Scan.status == ScanStatus.COMPLETED.value)
-        .all()
+def latest_scan_ids(db: Session, user_id: str | None = None) -> list[str]:
+    """ID of the most recent completed scan of every artifact.
+    When user_id is provided, only scans belonging to that user are returned."""
+    q = db.query(Scan.id, Scan.artifact_id, Scan.completed_at).filter(
+        Scan.status == ScanStatus.COMPLETED.value
     )
+    if user_id:
+        q = q.filter(Scan.user_id == user_id)
+    rows = q.all()
     newest: dict[str, tuple] = {}
     for scan_id, artifact_id, completed_at in rows:
         if artifact_id not in newest or (completed_at and completed_at > newest[artifact_id][1]):

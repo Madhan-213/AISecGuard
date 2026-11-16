@@ -116,9 +116,11 @@ export default function HomeNav({ user, theme, onToggleTheme, onStart, onNavigat
             className="flex items-center gap-2.5 cursor-pointer min-w-0"
             aria-label="AISecGuard home"
           >
-            <span className="p-1.5 rounded-lg bg-hp-accent/12 border border-hp-accent/25 text-hp-accent">
-              <Shield size={20} />
-            </span>
+            <img
+              src="/logos/logo-icon.png"
+              alt="AISecGuard"
+              className="w-8 h-8 rounded-lg shadow-sm shrink-0 object-contain"
+            />
             <span className="flex flex-col leading-none text-left">
               <span className="text-[15px] font-bold tracking-tight text-hp-fg">AISecGuard</span>
               <span className="hidden sm:block text-[10px] font-medium uppercase tracking-wider whitespace-nowrap text-hp-faint">AI Supply Chain Security</span>

@@ -4,7 +4,7 @@
 # Quickstart (Frontend UI + FastAPI Backend on Port 8000):
 #   docker compose up -d
 #   Visit: http://localhost:8000
-#
+#c
 # Stop and remove containers:
 #   docker compose down
 #
@@ -29,7 +29,7 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
-      - NO_LOGIN_REQUIRED=true          # Set to 'false' to enforce enterprise multi-user JWT login
+      - NO_LOGIN_REQUIRED=true # Set to 'false' to enforce enterprise multi-user JWT login
       - RATE_LIMIT_ENABLED=true
       - OSV_LOOKUP_ENABLED=true
       - DATABASE_URL=sqlite:////app/uploads/aisecguard.db
@@ -40,7 +40,7 @@ services:
       - upload_data:/app/uploads
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/health || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -53,7 +53,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: aisecguard_postgres
-    profiles: ["postgres"]
+    profiles: [ "postgres" ]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aisecguard}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aisecguard_password}
@@ -64,7 +64,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aisecguard -d aisecguard"]
+      test: [ "CMD-SHELL", "pg_isready -U aisecguard -d aisecguard" ]
       interval: 10s
       timeout: 5s
       retries: 5
