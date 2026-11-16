@@ -90,6 +90,11 @@ frontend/.env
 *.crt
 secrets/
 
-# --- Reports directory (generated files, optional to exclude) ---
-# Uncomment if you don't want to commit generated reports
-# reports/
+# --- Reports & Milestone Documentation ---
+*WEEK*.md
+*week*.md
+DOCS/*week*.md
+DOCS/*WEEK*.md
+DOCS/weekly-reports/
+DOCS/*.pdf
+
