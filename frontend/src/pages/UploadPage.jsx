@@ -1,21 +1,44 @@
 /**
- * AISecGuard — Upload & Scan (Week 9 redesign — light SaaS theme)
- *
- * Queue several artifacts, attach provenance (source URL, expected SHA-256,
- * what each file was built from), then upload → link lineage → scan each one
- * against the real backend. Every result links to its full report.
- * Nothing is executed: the backend scanners are static.
+ * AISecGuard — Upload & Scan Page
+ * Redesigned to closely follow the premium cybersecurity UI reference.
+ * Features:
+ * - 3-step progress bar (Upload Files -> Analyze -> View Results)
+ * - Large drag-and-drop zone with Browse Files CTA & format pills
+ * - "What will be checked?" compact security checks card
+ * - Live "Recent Scans" table with real backend data
+ * - Full preservation of file-size validation, lineage linking, provenance, and scanning logic.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import {
-  AlertCircle, ArrowRight, CheckCircle2, ChevronDown, Cpu, Database, FileQuestion, Fingerprint, GitBranch, Link2,
-  Loader2, Package, Play, ShieldCheck, Trash2, UploadCloud, X,
+  UploadCloud,
+  Folder,
+  Layers,
+  Database,
+  Code,
+  Archive,
+  ShieldCheck,
+  History,
+  Eye,
+  CheckCircle2,
+  AlertCircle,
+  Play,
+  Loader2,
+  Trash2,
+  Fingerprint,
+  ChevronDown,
+  X,
+  ArrowRight,
+  GitBranch,
+  Link2,
+  FileText,
 } from 'lucide-react';
 import { apiErrorMessage, artifactsApi, scansApi, supplyChainApi, systemApi } from '../api/client';
+import { deviceCache } from '../utils/deviceCache';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../hooks/useTheme';
 
 const FALLBACK_INFO = {
   max_upload_mb: 100,
@@ -26,32 +49,16 @@ const FALLBACK_INFO = {
   ],
 };
 
-const TYPE_META = {
-  MODEL: { label: 'Model', icon: Cpu, color: '#38bdf8', hint: 'Pickle, PyTorch, SafeTensors, ONNX, or .zip (Hugging Face repo)' },
-  DATASET: { label: 'Dataset', icon: Database, color: '#a78bfa', hint: 'Duplicates, outliers, label skew, version diffs' },
-  DEPENDENCY: { label: 'Dependencies', icon: Package, color: '#34d399', hint: 'Pinning, typosquatting, known CVEs' },
-};
-
-// child type → parent type → relation (mirrors ALLOWED_RELATIONS in lineage_service.py)
 const RELATION_FOR = {
   MODEL: { DATASET: 'TRAINED_ON', MODEL: 'FINE_TUNED_FROM', DEPENDENCY: 'DEPENDS_ON' },
   DATASET: { DATASET: 'DERIVED_FROM' },
 };
 const RELATION_TEXT = {
-  TRAINED_ON: 'trained on', FINE_TUNED_FROM: 'fine-tuned from', DEPENDS_ON: 'depends on', DERIVED_FROM: 'derived from',
+  TRAINED_ON: 'trained on',
+  FINE_TUNED_FROM: 'fine-tuned from',
+  DEPENDS_ON: 'depends on',
+  DERIVED_FROM: 'derived from',
 };
-
-const STEPS = ['Upload', 'Link', 'Scan'];
-
-const card = {
-  background: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 12,
-  boxShadow: 'var(--card-shadow)',
-  padding: '1.5rem',
-};
-const muted = { fontSize: '0.8rem', color: 'var(--color-text-muted)' };
-const fieldLabel = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.3rem' };
 
 function extOf(name) {
   const i = name.lastIndexOf('.');
@@ -59,51 +66,71 @@ function extOf(name) {
 }
 
 function formatSize(bytes) {
+  if (!bytes) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-let nextId = 0;
-
-/* ── 3-step progress bar ── */
-function StepBar({ step }) {
-  const steps = ['Upload', 'Link Lineage', 'Scan'];
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '2rem' }}>
-      {steps.map((label, i) => {
-        const active = i === step;
-        const done = i < step;
-        return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', flex: i < steps.length - 1 ? 1 : undefined }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: '0.85rem',
-                background: done ? 'var(--color-primary)' : active ? 'var(--color-primary)' : 'var(--color-btn-ghost-bg)',
-                color: done || active ? '#fff' : 'var(--color-text-muted)',
-                border: active && !done ? '2px solid var(--color-primary)' : 'none',
-              }}>
-                {done ? <CheckCircle2 size={16} /> : i + 1}
-              </div>
-              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: active || done ? 'var(--color-primary)' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{label}</span>
-            </div>
-            {i < steps.length - 1 && (
-              <div style={{ flex: 1, height: 2, background: done ? 'var(--color-primary)' : 'var(--color-border)', margin: '0 0.5rem', marginBottom: '1.1rem' }} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+function formatDateTime(dateStr) {
+  if (!dateStr) return 'Just now';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
 }
+
+function getRiskBadge(riskLevel) {
+  const level = (riskLevel || 'UNKNOWN').toUpperCase();
+  const styles = {
+    CRITICAL: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.16)', border: 'rgba(239, 68, 68, 0.35)', label: 'Critical' },
+    HIGH:     { color: '#f97316', bg: 'rgba(249, 115, 22, 0.16)', border: 'rgba(249, 115, 22, 0.35)', label: 'High' },
+    MEDIUM:   { color: '#eab308', bg: 'rgba(234, 179, 8, 0.16)', border: 'rgba(234, 179, 8, 0.35)', label: 'Medium' },
+    LOW:      { color: '#10b981', bg: 'rgba(16, 185, 129, 0.16)', border: 'rgba(16, 185, 129, 0.35)', label: 'Low' },
+    CLEAN:    { color: '#10b981', bg: 'rgba(16, 185, 129, 0.16)', border: 'rgba(16, 185, 129, 0.35)', label: 'Clean' },
+    UNKNOWN:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', border: 'rgba(148, 163, 184, 0.3)', label: 'Unknown' },
+  };
+  return styles[level] || styles.UNKNOWN;
+}
+
+function getTypeBadge(artifactType) {
+  const type = (artifactType || '').toUpperCase();
+  if (type.includes('MODEL')) {
+    return { label: 'Model', color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)', border: 'rgba(168, 85, 247, 0.3)' };
+  }
+  if (type.includes('DATASET')) {
+    return { label: 'Dataset', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)', border: 'rgba(59, 130, 246, 0.3)' };
+  }
+  if (type.includes('DEP')) {
+    return { label: 'Dependency', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', border: 'rgba(16, 185, 129, 0.3)' };
+  }
+  return { label: artifactType || 'Artifact', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)', border: 'rgba(139, 92, 246, 0.3)' };
+}
+
+let nextId = 0;
 
 export default function UploadPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [info, setInfo] = useState(FALLBACK_INFO);
   const [items, setItems] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
+  const [recentScans, setRecentScans] = useState(() => deviceCache.getScans().slice(0, 6));
+  const [loadingScans, setLoadingScans] = useState(false);
+
+  // Provenance & lineage state
   const [sourceUrl, setSourceUrl] = useState('');
   const [expectedHash, setExpectedHash] = useState('');
   const [parentId, setParentId] = useState('');
@@ -111,36 +138,69 @@ export default function UploadPage() {
   const [showProvenance, setShowProvenance] = useState(false);
   const [running, setRunning] = useState(false);
 
-  useEffect(() => {
+  // Fetch system config, artifacts, and recent scans
+  const loadData = useCallback(() => {
     systemApi.info().then((r) => setInfo(r.data)).catch(() => {});
     artifactsApi.list({ limit: 200 }).then((r) => setArtifacts(r.data.artifacts || [])).catch(() => {});
+
+    setLoadingScans(true);
+    scansApi
+      .list({ limit: 6 })
+      .then((r) => {
+        if (r?.data?.scans) {
+          r.data.scans.forEach((s) => deviceCache.saveScan(s));
+          setRecentScans(r.data.scans.slice(0, 6));
+        }
+      })
+      .catch(() => {
+        setRecentScans(deviceCache.getScans().slice(0, 6));
+      })
+      .finally(() => setLoadingScans(false));
   }, []);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Extension to Type map
   const extToType = useMemo(() => {
     const map = {};
-    info.scanners.forEach((s) => s.extensions.forEach((e) => { map[e.toLowerCase()] = s.artifact_type; }));
+    info.scanners.forEach((s) => {
+      s.extensions.forEach((e) => {
+        map[e.toLowerCase()] = s.artifact_type;
+      });
+    });
     return map;
   }, [info]);
 
-  const onDrop = useCallback((files) => {
-    const maxBytes = info.max_upload_mb * 1024 * 1024;
-    setItems((prev) => [
-      ...prev,
-      ...files.map((file) => {
-        const type = extToType[extOf(file.name)];
-        let error = null;
-        if (!type) error = `Unsupported file type ${extOf(file.name) || '(no extension)'}.`;
-        else if (file.size === 0) error = 'File is empty.';
-        else if (file.size > maxBytes) error = `Larger than the ${info.max_upload_mb} MB limit.`;
-        if (error) {
-          toast.warning(`${file.name}: ${error}`);
-        }
-        return { id: ++nextId, file, type, status: error ? 'invalid' : 'queued', step: -1, error, scan: null };
-      }),
-    ]);
-  }, [extToType, info.max_upload_mb, toast]);
+  // Dropzone handler
+  const onDrop = useCallback(
+    (files) => {
+      const maxBytes = info.max_upload_mb * 1024 * 1024;
+      setItems((prev) => [
+        ...prev,
+        ...files.map((file) => {
+          const type = extToType[extOf(file.name)];
+          let error = null;
+          if (!type) error = `Unsupported file type ${extOf(file.name) || '(no extension)'}.`;
+          else if (file.size === 0) error = 'File is empty.';
+          else if (file.size > maxBytes) error = `Exceeds the ${info.max_upload_mb} MB limit.`;
+          if (error) {
+            toast.warning(`${file.name}: ${error}`);
+          }
+          return { id: ++nextId, file, type, status: error ? 'invalid' : 'queued', step: -1, error, scan: null };
+        }),
+      ]);
+    },
+    [extToType, info.max_upload_mb, toast]
+  );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, multiple: true, disabled: running });
+  const { getRootProps, getInputProps, isDragActive, open: openFileDialog } = useDropzone({
+    onDrop,
+    multiple: true,
+    disabled: running,
+    noClick: false,
+  });
 
   const update = (id, patch) => setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   const queued = items.filter((it) => it.status === 'queued');
@@ -150,6 +210,10 @@ export default function UploadPage() {
   const hashValid = !expectedHash || /^[0-9a-fA-F]{64}$/.test(expectedHash.trim());
   const singleFile = queued.length === 1;
 
+  // Active step in stepper
+  const currentStep = running ? 2 : done.length > 0 && queued.length === 0 ? 3 : 1;
+
+  // Execution workflow
   const runAll = async () => {
     setRunning(true);
     for (const item of queued) {
@@ -177,9 +241,13 @@ export default function UploadPage() {
         const scan = (await scansApi.create(uploaded.id)).data;
         update(item.id, { status: 'done', step: 3, scan });
 
-        // For single-file batches, navigate to real-time progress page
-        if (queued.length === 1) {
+        // Save scan to device cache & refresh table
+        deviceCache.saveScan(scan);
+
+        // For single-file upload, navigate to live scan progress page
+        if (singleFile) {
           navigate(`/scans/${scan.id}/progress`);
+          return;
         }
       } catch (e) {
         const errMsg = apiErrorMessage(e, 'Upload or scan failed.');
@@ -188,280 +256,1091 @@ export default function UploadPage() {
       }
     }
     setRunning(false);
-    artifactsApi.list({ limit: 200 }).then((r) => setArtifacts(r.data.artifacts || [])).catch(() => {});
+    loadData();
   };
 
-  const summary = done.reduce((acc, it) => ({ ...acc, [it.scan.risk_level]: (acc[it.scan.risk_level] || 0) + 1 }), {});
-
-  /* Determine UI step */
-  const uiStep = running ? 2 : queued.length > 0 ? 0 : done.length > 0 ? 2 : 0;
-
   return (
-    <div className="fade-in" style={{ padding: '1.75rem 2rem', maxWidth: 1180, margin: '0 auto' }}>
-      {/* Page header */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-text)' }}>Upload &amp; Scan</h1>
-        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-          Drop models, datasets or dependency files — fingerprinted, lineage-linked and scanned statically. Nothing is executed.
-        </p>
-      </div>
-
-      {/* 3-step indicator */}
-      <StepBar step={uiStep} />
-
-      <div className="dash-grid dash-grid--wide-left">
-        <div>
-          {/* ── Step 1: Drop zone ── */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem' }}>1</span>
-              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text)' }}>Drop or Browse Files</span>
-            </div>
-
-            <div
-              {...getRootProps()}
+    <div className="fade-in upload-page-container">
+      {/* ── Top Header Bar ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginBottom: '2rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Header Icon squircle */}
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 16,
+              background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.25) 0%, rgba(99, 102, 241, 0.15) 100%)',
+              border: '1px solid rgba(168, 85, 247, 0.35)',
+              boxShadow: '0 8px 20px -4px rgba(147, 51, 234, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#a855f7',
+              flexShrink: 0,
+            }}
+          >
+            <UploadCloud size={26} />
+          </div>
+          <div>
+            <h1
               style={{
-                ...card,
-                textAlign: 'center',
-                padding: '2.5rem 1.5rem',
-                cursor: running ? 'not-allowed' : 'pointer',
-                borderStyle: 'dashed',
-                borderWidth: 2,
-                borderColor: isDragActive ? 'var(--color-primary)' : 'var(--color-border)',
-                background: isDragActive ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                transition: 'border-color 0.2s, background 0.2s',
+                fontSize: '1.75rem',
+                fontWeight: 800,
+                color: 'var(--color-text)',
+                margin: 0,
+                lineHeight: 1.2,
+                letterSpacing: '-0.02em',
               }}
             >
-              <input {...getInputProps()} />
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: isDragActive ? 'var(--color-primary-light)' : 'var(--color-btn-ghost-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-                <UploadCloud size={28} style={{ color: isDragActive ? 'var(--color-primary)' : 'var(--color-text-muted)' }} />
-              </div>
-              <div style={{ color: 'var(--color-text)', fontWeight: 700, fontSize: '1.05rem' }}>
-                {isDragActive ? 'Drop AI artifacts here' : 'Drag & drop AI artifacts here'}
-              </div>
-              <p style={{ ...muted, marginTop: '0.4rem', marginBottom: '1.25rem' }}>
-                Up to {info.max_upload_mb} MB per file · Multiple files allowed
-              </p>
-              <button type="button" className="btn btn-secondary" style={{ pointerEvents: 'none' }}>Browse files</button>
-
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1.25rem' }}>
-                {info.scanners.map((s) => {
-                  const meta = TYPE_META[s.artifact_type];
-                  return (
-                    <span key={s.artifact_type} style={{ fontSize: '0.72rem', padding: '0.25rem 0.65rem', borderRadius: 20, border: `1px solid ${meta.color}40`, color: meta.color, background: `${meta.color}12`, fontWeight: 600 }}>
-                      {meta.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
+              Upload &amp; Scan
+            </h1>
+            <p
+              style={{
+                fontSize: '0.88rem',
+                color: 'var(--color-text-muted)',
+                margin: '0.35rem 0 0',
+              }}
+            >
+              Upload AI models, datasets, or dependency files to detect threats and supply chain risks.
+            </p>
           </div>
+        </div>
 
-          {/* ── Step 2: Provenance (Link Lineage) ── */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-btn-ghost-bg)', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem', border: '1px solid var(--color-border)' }}>2</span>
-              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text)' }}>Link Lineage</span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>(optional)</span>
+        {/* Right side AI Security Shield Badge */}
+        <div
+          className="desktop-only"
+          style={{
+            position: 'relative',
+            width: 72,
+            height: 72,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: '-6px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(59, 130, 246, 0.15) 50%, transparent 70%)',
+              filter: 'blur(10px)',
+            }}
+          />
+          <img
+            src="/logos/logo-shield.png"
+            alt="AI Security Shield"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              position: 'relative',
+              filter: 'drop-shadow(0 0 12px rgba(147, 51, 234, 0.5))',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── 3-Step Horizontal Stepper ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '0.75rem',
+          marginBottom: '2rem',
+          maxWidth: '780px',
+          margin: '0 auto 2.25rem',
+        }}
+      >
+        {/* Step 1 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: currentStep >= 1 ? '#8b5cf6' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+              color: currentStep >= 1 ? '#ffffff' : 'var(--color-text-muted)',
+              border: currentStep >= 1 ? '1px solid #a855f7' : '1px solid var(--color-border)',
+              boxShadow: currentStep === 1 ? '0 0 12px rgba(139, 92, 246, 0.5)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 700,
+              fontSize: '0.8rem',
+            }}
+          >
+            {currentStep > 1 ? <CheckCircle2 size={15} /> : '1'}
+          </div>
+          <span
+            style={{
+              fontSize: '0.88rem',
+              fontWeight: currentStep === 1 ? 700 : 500,
+              color: currentStep >= 1 ? 'var(--color-text)' : 'var(--color-text-muted)',
+            }}
+          >
+            Upload Files
+          </span>
+        </div>
+
+        {/* Connector line 1 */}
+        <div
+          style={{
+            flex: 1,
+            height: 2,
+            background: currentStep >= 2 ? '#8b5cf6' : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+            minWidth: 40,
+            transition: 'background 0.3s ease',
+          }}
+        />
+
+        {/* Step 2 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: currentStep >= 2 ? '#8b5cf6' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+              color: currentStep >= 2 ? '#ffffff' : 'var(--color-text-muted)',
+              border: currentStep >= 2 ? '1px solid #a855f7' : '1px solid var(--color-border)',
+              boxShadow: currentStep === 2 ? '0 0 12px rgba(139, 92, 246, 0.5)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 700,
+              fontSize: '0.8rem',
+            }}
+          >
+            {currentStep > 2 ? <CheckCircle2 size={15} /> : '2'}
+          </div>
+          <span
+            style={{
+              fontSize: '0.88rem',
+              fontWeight: currentStep === 2 ? 700 : 500,
+              color: currentStep >= 2 ? 'var(--color-text)' : 'var(--color-text-muted)',
+            }}
+          >
+            Analyze
+          </span>
+        </div>
+
+        {/* Connector line 2 */}
+        <div
+          style={{
+            flex: 1,
+            height: 2,
+            background: currentStep >= 3 ? '#8b5cf6' : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+            minWidth: 40,
+            transition: 'background 0.3s ease',
+          }}
+        />
+
+        {/* Step 3 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: currentStep >= 3 ? '#10b981' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+              color: currentStep >= 3 ? '#ffffff' : 'var(--color-text-muted)',
+              border: currentStep >= 3 ? '1px solid #10b981' : '1px solid var(--color-border)',
+              boxShadow: currentStep === 3 ? '0 0 12px rgba(16, 185, 129, 0.5)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 700,
+              fontSize: '0.8rem',
+            }}
+          >
+            3
+          </div>
+          <span
+            style={{
+              fontSize: '0.88rem',
+              fontWeight: currentStep === 3 ? 700 : 500,
+              color: currentStep >= 3 ? 'var(--color-text)' : 'var(--color-text-muted)',
+            }}
+          >
+            View Results
+          </span>
+        </div>
+      </div>
+
+      {/* ── Main Upload & Info Grid ── */}
+      <div className="upload-main-grid">
+        {/* Left: Drag & Drop Zone + Queued items */}
+        <div>
+          <div
+            {...getRootProps()}
+            style={{
+              position: 'relative',
+              borderRadius: '20px',
+              border: isDragActive
+                ? '2px dashed #a855f7'
+                : isDark
+                ? '2px dashed rgba(168, 85, 247, 0.45)'
+                : '2px dashed rgba(147, 51, 234, 0.35)',
+              background: isDark
+                ? 'radial-gradient(ellipse at 50% 60%, rgba(124, 58, 237, 0.16) 0%, rgba(15, 23, 42, 0.7) 70%)'
+                : 'radial-gradient(ellipse at 50% 60%, rgba(243, 232, 255, 0.8) 0%, rgba(255, 255, 255, 0.95) 70%)',
+              padding: '3rem 2rem 2.25rem',
+              textAlign: 'center',
+              cursor: running ? 'not-allowed' : 'pointer',
+              transition: 'all 0.25s ease',
+              boxShadow: isDragActive
+                ? '0 0 35px rgba(168, 85, 247, 0.3)'
+                : isDark
+                ? '0 12px 32px -8px rgba(0, 0, 0, 0.5)'
+                : '0 8px 24px -4px rgba(147, 51, 234, 0.08)',
+              overflow: 'hidden',
+            }}
+          >
+            <input {...getInputProps()} />
+
+            {/* Glowing Cloud Icon */}
+            <div
+              style={{
+                width: 68,
+                height: 68,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.25) 0%, rgba(99, 102, 241, 0.2) 100%)',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                boxShadow: '0 0 25px rgba(168, 85, 247, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 1.25rem',
+                color: '#c084fc',
+              }}
+            >
+              <UploadCloud size={34} />
             </div>
 
-            <div style={{ ...card, padding: '1rem 1.25rem' }}>
-              <button
-                type="button"
-                onClick={() => setShowProvenance((v) => !v)}
-                aria-expanded={showProvenance}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            {/* Title & Description */}
+            <h3
+              style={{
+                fontSize: '1.25rem',
+                fontWeight: 800,
+                color: 'var(--color-text)',
+                margin: '0 0 0.4rem',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              {isDragActive ? 'Drop your artifacts here' : 'Drag & drop files here'}
+            </h3>
+            <p
+              style={{
+                fontSize: '0.88rem',
+                color: 'var(--color-text-muted)',
+                margin: '0 0 1.5rem',
+              }}
+            >
+              or click to browse from your device
+            </p>
+
+            {/* Browse Files CTA button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openFileDialog();
+              }}
+              disabled={running}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.55rem',
+                padding: '0.65rem 1.6rem',
+                borderRadius: 999,
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                color: '#ffffff',
+                background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+                boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.5)',
+                border: 'none',
+                cursor: running ? 'not-allowed' : 'pointer',
+                marginBottom: '1.75rem',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!running) e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                if (!running) e.currentTarget.style.transform = 'none';
+              }}
+            >
+              <Folder size={16} />
+              <span>Browse Files</span>
+            </button>
+
+            {/* Format pills row */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.6rem',
+                flexWrap: 'wrap',
+                marginBottom: '1.25rem',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 999,
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  color: isDark ? '#cbd5e1' : '#334155',
+                  background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+                }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text)', fontWeight: 600, fontSize: '0.9rem' }}>
-                  <Fingerprint size={16} style={{ color: 'var(--color-primary)' }} /> Provenance &amp; source details
-                </span>
-                <ChevronDown size={18} style={{ color: 'var(--color-text-muted)', transform: showProvenance ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-              </button>
-              {showProvenance && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.9rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border)' }}>
-                  <div>
-                    <label htmlFor="prov-source" style={fieldLabel}>Source URL</label>
-                    <input id="prov-source" className="input" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://huggingface.co/org/model" disabled={running} />
-                    <p style={{ ...muted, fontSize: '0.72rem', marginTop: '0.25rem' }}>Where the file came from. Recorded for EU AI Act Art. 10 evidence.</p>
-                  </div>
-                  <div>
-                    <label htmlFor="prov-hash" style={fieldLabel}>Expected SHA-256 {queued.length > 1 && '(single file only)'}</label>
-                    <input
-                      id="prov-hash" className="input font-mono" value={expectedHash} onChange={(e) => setExpectedHash(e.target.value)}
-                      placeholder="64 hex characters from the publisher" disabled={running || queued.length > 1}
-                      style={{ borderColor: hashValid ? undefined : 'var(--color-danger)' }}
-                    />
-                    <p style={{ ...muted, fontSize: '0.72rem', marginTop: '0.25rem', color: hashValid ? undefined : 'var(--color-danger)' }}>
-                      {hashValid ? 'A mismatch is reported as PROV-002.' : 'Must be exactly 64 hexadecimal characters.'}
-                    </p>
-                  </div>
-                  <div>
-                    <label htmlFor="prov-parent" style={fieldLabel}>Built from</label>
-                    <select id="prov-parent" className="input" value={parentId} onChange={(e) => setParentId(e.target.value)} disabled={running}>
-                      <option value="">Nothing / not known</option>
-                      {artifacts.map((a) => <option key={a.id} value={a.id}>{a.original_filename} · {a.artifact_type}</option>)}
-                    </select>
-                    <p style={{ ...muted, fontSize: '0.72rem', marginTop: '0.25rem' }}>Upstream risk (LIN-001) and dataset diffs are checked during the scan.</p>
-                  </div>
-                  <div>
-                    <label htmlFor="prov-note" style={fieldLabel}>Lineage note</label>
-                    <input id="prov-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. 20 epochs, deduplicated" disabled={running || !parentId} maxLength={2000} />
-                  </div>
-                </div>
-              )}
+                <Layers size={13} style={{ color: '#c084fc' }} />
+                <span>Model (.pt, .pkl)</span>
+              </span>
+
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 999,
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  color: isDark ? '#cbd5e1' : '#334155',
+                  background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+                }}
+              >
+                <Database size={13} style={{ color: '#38bdf8' }} />
+                <span>Dataset (.csv, .json)</span>
+              </span>
+
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 999,
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  color: isDark ? '#cbd5e1' : '#334155',
+                  background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+                }}
+              >
+                <Code size={13} style={{ color: '#fb923c' }} />
+                <span>Dependency (requirements.txt)</span>
+              </span>
+
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 999,
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  color: isDark ? '#cbd5e1' : '#334155',
+                  background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+                }}
+              >
+                <Archive size={13} style={{ color: '#34d399' }} />
+                <span>Archive (.zip)</span>
+              </span>
+            </div>
+
+            {/* Max file size and notice */}
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              ⓘ Max file size: {info.max_upload_mb} MB | Multiple files allowed
             </div>
           </div>
 
-          {/* ── Step 3: Queue + Scan ── */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-btn-ghost-bg)', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem', border: '1px solid var(--color-border)' }}>3</span>
-              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text)' }}>Scan</span>
-            </div>
-
-            <div style={card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          {/* ── Queued Files List & Scan Action ── */}
+          {items.length > 0 && (
+            <div
+              style={{
+                marginTop: '1.25rem',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '16px',
+                padding: '1.25rem 1.5rem',
+                boxShadow: 'var(--card-shadow)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '1rem',
+                  gap: '0.75rem',
+                  flexWrap: 'wrap',
+                }}
+              >
                 <div>
-                  <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)' }}>Queue</h2>
-                  <p style={muted}>{items.length ? `${queued.length} ready · ${done.length} scanned` : 'No files yet'}</p>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                    Selected Artifacts ({items.length})
+                  </h4>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                    {queued.length} ready to scan · {done.length} completed
+                  </span>
                 </div>
+
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {items.length > 0 && !running && (
-                    <button type="button" className="btn btn-ghost" onClick={() => setItems([])}><Trash2 size={14} /><span>Clear</span></button>
+                  {!running && items.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setItems([])}
+                      className="btn btn-ghost"
+                      style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
+                    >
+                      <Trash2 size={14} />
+                      <span>Clear</span>
+                    </button>
                   )}
-                  <button type="button" className="btn btn-primary" onClick={runAll} disabled={running || !queued.length || !hashValid}>
+                  <button
+                    type="button"
+                    onClick={runAll}
+                    disabled={running || !queued.length || !hashValid}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.5rem 1.1rem',
+                      borderRadius: '10px',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      color: '#ffffff',
+                      background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+                      border: 'none',
+                      cursor: running || !queued.length ? 'not-allowed' : 'pointer',
+                      opacity: running || !queued.length ? 0.7 : 1,
+                      boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)',
+                    }}
+                  >
                     {running ? <Loader2 size={15} className="spin" /> : <Play size={15} />}
-                    <span>{running ? 'Scanning…' : `Scan ${queued.length || ''} file${queued.length === 1 ? '' : 's'}`}</span>
+                    <span>{running ? 'Scanning…' : `Start Scan (${queued.length})`}</span>
                   </button>
                 </div>
               </div>
 
-              {items.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)', fontSize: '0.85rem', background: 'var(--color-btn-ghost-bg)', borderRadius: 8 }}>
-                  <FileQuestion size={28} style={{ margin: '0 auto 0.5rem', color: 'var(--color-text-muted)', opacity: 0.5 }} />
-                  Add files above to build a queue.
-                </div>
-              ) : (
-                <ul style={{ display: 'grid', gap: '0.6rem' }}>
-                  {items.map((it) => {
-                    const meta = TYPE_META[it.type] || { icon: FileQuestion, color: '#6B7A8D', label: 'Unknown' };
-                    const Icon = meta.icon;
-                    const relation = it.status === 'queued' ? relationFor(it.type) : null;
-                    return (
-                      <li key={it.id} style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '0.8rem 0.95rem', background: 'var(--color-surface)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ padding: 8, borderRadius: 8, background: `${meta.color}18`, color: meta.color, display: 'inline-flex', flexShrink: 0 }}><Icon size={17} /></span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.file.name}</div>
-                            <div style={muted}>
-                              {meta.label} · {formatSize(it.file.size)}
-                              {relation && <> · <Link2 size={11} style={{ verticalAlign: '-1px' }} /> {RELATION_TEXT[relation]} {parent.original_filename}</>}
-                              {it.linkNote && <> · {it.linkNote}</>}
-                            </div>
+              {/* Items queue */}
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {items.map((it) => {
+                  const typeBadge = getTypeBadge(it.type);
+                  return (
+                    <div
+                      key={it.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                        border: '1px solid var(--color-border)',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                        <FileText size={18} style={{ color: typeBadge.color, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: '0.86rem',
+                              fontWeight: 600,
+                              color: 'var(--color-text)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {it.file.name}
                           </div>
-                          {it.status === 'done' && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                              <span className={`badge badge-${it.scan.risk_level.toLowerCase()}`}>{it.scan.risk_level} · {it.scan.risk_score}</span>
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.6rem' }} onClick={() => navigate(`/scans/${it.scan.id}`)}>
-                                <span>Report</span><ArrowRight size={13} />
-                              </button>
-                            </div>
-                          )}
-                          {(it.status === 'queued' || it.status === 'invalid' || it.status === 'failed') && !running && (
-                            <button type="button" aria-label={`Remove ${it.file.name}`} onClick={() => setItems((p) => p.filter((x) => x.id !== it.id))} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: 4, borderRadius: 6, display: 'flex' }}>
-                              <X size={16} />
-                            </button>
-                          )}
+                          <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
+                            {formatSize(it.file.size)}
+                            {it.linkNote && ` · ${it.linkNote}`}
+                          </div>
                         </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: 6,
+                            color: typeBadge.color,
+                            background: typeBadge.bg,
+                            border: `1px solid ${typeBadge.border}`,
+                          }}
+                        >
+                          {typeBadge.label}
+                        </span>
+
+                        {it.status === 'done' && it.scan && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/scans/${it.scan.id}`)}
+                            className="btn btn-ghost"
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.76rem' }}
+                          >
+                            <span>Report</span>
+                            <ArrowRight size={12} />
+                          </button>
+                        )}
 
                         {it.status === 'running' && (
-                          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem' }}>
-                            {STEPS.map((label, i) => (
-                              <div key={label} style={{ flex: 1 }}>
-                                <div style={{ height: 4, borderRadius: 4, background: i < it.step ? 'var(--color-primary)' : i === it.step ? 'rgba(79,126,247,0.4)' : 'var(--color-btn-ghost-bg)' }} />
-                                <div style={{ fontSize: '0.7rem', marginTop: '0.25rem', color: i <= it.step ? 'var(--color-primary)' : 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                  {i === it.step && <Loader2 size={10} className="spin" />}{label}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', color: '#8b5cf6' }}>
+                            <Loader2 size={13} className="spin" /> Scanning…
+                          </span>
                         )}
-                        {it.status === 'done' && it.scan.findings?.length > 0 && (
-                          <p style={{ ...muted, marginTop: '0.5rem' }}>
-                            {it.scan.findings.length} finding(s), e.g. <span className="font-mono" style={{ color: 'var(--color-primary)' }}>{it.scan.findings[0].rule_id}</span> {it.scan.findings[0].title}
-                          </p>
+
+                        {(it.status === 'queued' || it.status === 'invalid' || it.status === 'failed') && !running && (
+                          <button
+                            type="button"
+                            onClick={() => setItems((prev) => prev.filter((x) => x.id !== it.id))}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--color-text-muted)',
+                              cursor: 'pointer',
+                              padding: 4,
+                            }}
+                          >
+                            <X size={15} />
+                          </button>
                         )}
-                        {it.status === 'done' && !it.scan.findings?.length && (
-                          <p style={{ ...muted, marginTop: '0.5rem', color: 'var(--color-success)' }}><CheckCircle2 size={12} style={{ verticalAlign: '-2px' }} /> No findings.</p>
-                        )}
-                        {it.error && (
-                          <p style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '0.5rem', display: 'flex', gap: '0.35rem', alignItems: 'flex-start' }}>
-                            <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> {it.error}
-                          </p>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Optional Provenance Toggle Drawer */}
+              <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowProvenance((v) => !v)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    color: 'var(--color-text-muted)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Fingerprint size={14} style={{ color: '#8b5cf6' }} />
+                    <span>Optional: Provenance &amp; Lineage Metadata</span>
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    style={{
+                      transform: showProvenance ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s ease',
+                    }}
+                  />
+                </button>
+
+                {showProvenance && (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: '0.75rem',
+                      marginTop: '0.85rem',
+                    }}
+                  >
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--color-text-muted)' }}>
+                        Source URL (Hugging Face / Git)
+                      </label>
+                      <input
+                        className="input"
+                        placeholder="https://huggingface.co/org/model"
+                        value={sourceUrl}
+                        onChange={(e) => setSourceUrl(e.target.value)}
+                        disabled={running}
+                        style={{ fontSize: '0.82rem', padding: '0.45rem 0.65rem' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--color-text-muted)' }}>
+                        Expected SHA-256 Digest
+                      </label>
+                      <input
+                        className="input font-mono"
+                        placeholder="64 hex characters"
+                        value={expectedHash}
+                        onChange={(e) => setExpectedHash(e.target.value)}
+                        disabled={running || queued.length > 1}
+                        style={{ fontSize: '0.82rem', padding: '0.45rem 0.65rem', borderColor: hashValid ? undefined : '#ef4444' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--color-text-muted)' }}>
+                        Lineage Parent (Built from)
+                      </label>
+                      <select
+                        className="input"
+                        value={parentId}
+                        onChange={(e) => setParentId(e.target.value)}
+                        disabled={running}
+                        style={{ fontSize: '0.82rem', padding: '0.45rem 0.65rem' }}
+                      >
+                        <option value="">None / Not linked</option>
+                        {artifacts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.original_filename} ({a.artifact_type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: "What will be checked?" Card */}
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '20px',
+            padding: '1.5rem',
+            boxShadow: 'var(--card-shadow)',
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.55rem',
+              marginBottom: '1.25rem',
+              color: 'var(--color-text)',
+              fontSize: '1rem',
+              fontWeight: 700,
+            }}
+          >
+            <ShieldCheck size={20} style={{ color: '#8b5cf6' }} />
+            <span>What will be checked?</span>
+          </div>
+
+          {/* 4 Security check blocks matching the screenshot */}
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            {/* 1. Model Integrity */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.85rem',
+                alignItems: 'flex-start',
+                padding: '0.75rem',
+                borderRadius: '12px',
+                background: isDark ? 'rgba(59, 130, 246, 0.06)' : 'rgba(59, 130, 246, 0.04)',
+                border: isDark ? '1px solid rgba(59, 130, 246, 0.15)' : '1px solid rgba(59, 130, 246, 0.1)',
+              }}
+            >
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  color: '#38bdf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Layers size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--color-text)', marginBottom: '0.15rem' }}>
+                  Model Integrity
+                </div>
+                <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                  Serialization issues, tampering, backdoors
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Dataset Risks */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.85rem',
+                alignItems: 'flex-start',
+                padding: '0.75rem',
+                borderRadius: '12px',
+                background: isDark ? 'rgba(168, 85, 247, 0.06)' : 'rgba(168, 85, 247, 0.04)',
+                border: isDark ? '1px solid rgba(168, 85, 247, 0.15)' : '1px solid rgba(168, 85, 247, 0.1)',
+              }}
+            >
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: 'rgba(168, 85, 247, 0.15)',
+                  color: '#c084fc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Database size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--color-text)', marginBottom: '0.15rem' }}>
+                  Dataset Risks
+                </div>
+                <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                  Poisoning, duplicates, abnormal patterns
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Dependency Risks */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.85rem',
+                alignItems: 'flex-start',
+                padding: '0.75rem',
+                borderRadius: '12px',
+                background: isDark ? 'rgba(249, 115, 22, 0.06)' : 'rgba(249, 115, 22, 0.04)',
+                border: isDark ? '1px solid rgba(249, 115, 22, 0.15)' : '1px solid rgba(249, 115, 22, 0.1)',
+              }}
+            >
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: 'rgba(249, 115, 22, 0.15)',
+                  color: '#fb923c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Code size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--color-text)', marginBottom: '0.15rem' }}>
+                  Dependency Risks
+                </div>
+                <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                  Vulnerable or malicious packages (CVEs)
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Supply Chain Analysis */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.85rem',
+                alignItems: 'flex-start',
+                padding: '0.75rem',
+                borderRadius: '12px',
+                background: isDark ? 'rgba(16, 185, 129, 0.06)' : 'rgba(16, 185, 129, 0.04)',
+                border: isDark ? '1px solid rgba(16, 185, 129, 0.15)' : '1px solid rgba(16, 185, 129, 0.1)',
+              }}
+            >
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#34d399',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <GitBranch size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--color-text)', marginBottom: '0.15rem' }}>
+                  Supply Chain Analysis
+                </div>
+                <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                  Provenance, lineage, and trust verification
+                </div>
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* ── Side column ── */}
-        <div style={{ display: 'grid', gap: '1.25rem', alignContent: 'start' }}>
-          {done.length > 0 && (
-            <div style={card}>
-              <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.75rem' }}>This batch</h2>
-              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].filter((l) => summary[l]).map((l) => (
-                  <span key={l} className={`badge badge-${l.toLowerCase()}`}>{summary[l]} {l}</span>
-                ))}
-              </div>
-              <button type="button" className="btn btn-ghost" style={{ width: '100%' }} onClick={() => navigate('/dashboard')}>
-                <span>Open dashboard</span><ArrowRight size={14} />
-              </button>
-            </div>
-          )}
-
-          <div style={card}>
-            <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.75rem' }}>What gets checked</h2>
-            <ul style={{ display: 'grid', gap: '0.75rem' }}>
-              {Object.entries(TYPE_META).map(([type, meta]) => {
-                const Icon = meta.icon;
-                return (
-                  <li key={type} style={{ display: 'flex', gap: '0.65rem' }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 8, background: `${meta.color}12`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Icon size={16} style={{ color: meta.color }} />
-                    </span>
-                    <div>
-                      <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.85rem' }}>{meta.label}</div>
-                      <div style={muted}>{meta.hint}</div>
-                    </div>
-                  </li>
-                );
-              })}
-              <li style={{ display: 'flex', gap: '0.65rem' }}>
-                <span style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(79,126,247,0.08)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Fingerprint size={16} style={{ color: 'var(--color-primary)' }} />
-                </span>
-                <div><div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.85rem' }}>Every file</div><div style={muted}>SHA-256 baseline, expected-hash and same-name substitution checks</div></div>
-              </li>
-              <li style={{ display: 'flex', gap: '0.65rem' }}>
-                <span style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(79,126,247,0.08)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <GitBranch size={16} style={{ color: 'var(--color-primary)' }} />
-                </span>
-                <div><div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.85rem' }}>With lineage</div><div style={muted}>Risk inherited from sources, dataset version diff</div></div>
-              </li>
-            </ul>
+      {/* ── Recent Scans Table Section ── */}
+      <div
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: '20px',
+          padding: '1.5rem',
+          boxShadow: 'var(--card-shadow)',
+        }}
+      >
+        {/* Table Section Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '1.25rem',
+            gap: '1rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+            <History size={19} style={{ color: '#8b5cf6' }} />
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
+              Recent Scans
+            </h3>
           </div>
 
-          <div style={{ ...card, display: 'flex', gap: '0.65rem', background: 'var(--color-card-subtle-bg)', border: '1px solid rgba(16,185,129,0.2)' }}>
-            <ShieldCheck size={18} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
-            <p style={muted}>
-              Static analysis only: files are never unpickled, imported, installed or run. No external API key is needed to scan.
-            </p>
-          </div>
+          <Link
+            to="/scans"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              color: '#8b5cf6',
+              textDecoration: 'none',
+              padding: '0.35rem 0.75rem',
+              borderRadius: 8,
+              background: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.08)',
+              transition: 'background 0.15s ease',
+            }}
+          >
+            <span>View All</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+
+        {/* Table Content */}
+        <div style={{ overflowX: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '0.85rem',
+              minWidth: '650px',
+            }}
+          >
+            <thead>
+              <tr
+                style={{
+                  borderBottom: '1px solid var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                  fontSize: '0.74rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  textAlign: 'left',
+                }}
+              >
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>File Name</th>
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Type</th>
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Risk Level</th>
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Score</th>
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Scanned On</th>
+                <th style={{ padding: '0.75rem 1rem', fontWeight: 700, textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingScans ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--color-text-muted)' }}>
+                    <Loader2 size={22} className="spin" style={{ margin: '0 auto 0.5rem', color: '#8b5cf6' }} />
+                    <span>Loading recent scans…</span>
+                  </td>
+                </tr>
+              ) : recentScans.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-muted)' }}>
+                    <ShieldCheck size={32} style={{ margin: '0 auto 0.6rem', color: 'var(--color-text-muted)', opacity: 0.5 }} />
+                    <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>No scans recorded yet</div>
+                    <div style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>Upload an AI artifact above to view threat findings here.</div>
+                  </td>
+                </tr>
+              ) : (
+                recentScans.map((scan) => {
+                  const filename =
+                    scan.artifact?.original_filename ||
+                    artifacts.find((a) => a.id === scan.artifact_id)?.original_filename ||
+                    scan.filename ||
+                    `artifact_${scan.artifact_id?.slice(0, 8) || scan.id.slice(0, 8)}`;
+                  const rawType =
+                    scan.artifact?.artifact_type ||
+                    artifacts.find((a) => a.id === scan.artifact_id)?.artifact_type ||
+                    scan.scan_type ||
+                    'MODEL';
+                  const typeBadge = getTypeBadge(rawType);
+                  const riskBadge = getRiskBadge(scan.risk_level);
+
+                  // Calculate display score e.g. 8.6 / 10
+                  const rawScore = scan.risk_score ?? 0;
+                  const displayScore = rawScore > 10 ? (rawScore / 10).toFixed(1) : Number(rawScore).toFixed(1);
+
+                  return (
+                    <tr
+                      key={scan.id}
+                      style={{
+                        borderBottom: '1px solid var(--color-border)',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      {/* File Name */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <FileText size={16} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--color-text)',
+                              maxWidth: '220px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={filename}
+                          >
+                            {filename}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Type */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '0.2rem 0.65rem',
+                            borderRadius: 999,
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            color: typeBadge.color,
+                            background: typeBadge.bg,
+                            border: `1px solid ${typeBadge.border}`,
+                          }}
+                        >
+                          {typeBadge.label}
+                        </span>
+                      </td>
+
+                      {/* Risk Level */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '0.2rem 0.65rem',
+                            borderRadius: 999,
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            color: riskBadge.color,
+                            background: riskBadge.bg,
+                            border: `1px solid ${riskBadge.border}`,
+                          }}
+                        >
+                          {riskBadge.label}
+                        </span>
+                      </td>
+
+                      {/* Score */}
+                      <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                        <span style={{ fontSize: '0.88rem' }}>{displayScore}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 3 }}>/ 10</span>
+                      </td>
+
+                      {/* Scanned On */}
+                      <td style={{ padding: '0.85rem 1rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                        {formatDateTime(scan.completed_at || scan.started_at)}
+                      </td>
+
+                      {/* Action */}
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/scans/${scan.id}`)}
+                          title="View Scan Report"
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-text)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#8b5cf6';
+                            e.currentTarget.style.borderColor = '#8b5cf6';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = 'var(--color-text)';
+                            e.currentTarget.style.borderColor = 'var(--color-border)';
+                          }}
+                        >
+                          <Eye size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

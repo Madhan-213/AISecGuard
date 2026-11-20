@@ -25,6 +25,7 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
+  Bell,
 } from 'lucide-react';
 
 const MAIN_MENU = [
@@ -59,7 +60,7 @@ function SectionLabel({ children }) {
   );
 }
 
-function NavItem({ item, theme }) {
+function NavItem({ item }) {
   const Icon = item.icon;
   return (
     <NavLink
@@ -69,34 +70,37 @@ function NavItem({ item, theme }) {
       style={({ isActive }) => ({
         display: 'flex',
         alignItems: 'center',
-        gap: '0.65rem',
-        padding: '0.55rem 0.75rem',
-        borderRadius: 8,
-        fontSize: '0.84rem',
+        gap: '0.7rem',
+        padding: '0.6rem 0.85rem',
+        borderRadius: 10,
+        fontSize: '0.85rem',
         fontWeight: isActive ? 600 : 500,
-        color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
-        background: isActive ? 'var(--color-primary-light)' : 'transparent',
+        color: isActive ? '#ffffff' : 'var(--color-text-muted)',
+        background: isActive
+          ? 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)'
+          : 'transparent',
+        boxShadow: isActive ? '0 4px 14px rgba(124, 58, 237, 0.35)' : 'none',
         textDecoration: 'none',
-        transition: 'all 0.15s ease',
-        borderLeft: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
-        marginLeft: '0',
+        transition: 'all 0.18s ease',
         position: 'relative',
       })}
       onMouseEnter={(e) => {
-        if (!e.currentTarget.dataset.active) {
+        if (!e.currentTarget.classList.contains('active')) {
           e.currentTarget.style.background = 'var(--color-btn-ghost-bg)';
+          e.currentTarget.style.color = 'var(--color-text)';
         }
       }}
       onMouseLeave={(e) => {
-        if (!e.currentTarget.dataset.active) {
+        if (!e.currentTarget.classList.contains('active')) {
           e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.color = 'var(--color-text-muted)';
         }
       }}
     >
       {({ isActive }) => (
         <>
-          <Icon size={17} style={{ color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)', flexShrink: 0 }} />
-          <span style={{ color: isActive ? 'var(--color-primary)' : 'var(--color-text)', fontWeight: isActive ? 600 : 500 }}>
+          <Icon size={17} style={{ color: isActive ? '#ffffff' : 'var(--color-text-muted)', flexShrink: 0 }} />
+          <span style={{ color: isActive ? '#ffffff' : 'var(--color-text)', fontWeight: isActive ? 600 : 500 }}>
             {item.label}
           </span>
         </>
@@ -410,40 +414,84 @@ export default function Layout({ children }) {
           </div>
 
           {/* Center: search bar (hidden on mobile) */}
-          <div className="topbar-search-container" style={{ flex: 1, maxWidth: 420 }}>
+          <div className="topbar-search-container" style={{ flex: 1, maxWidth: 440 }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search size={15} style={{
                 position: 'absolute',
-                left: '0.75rem',
+                left: '0.85rem',
                 color: 'var(--color-text-muted)',
                 pointerEvents: 'none',
                 flexShrink: 0,
               }} />
               <input
                 type="text"
-                placeholder="Search scans, artifacts..."
+                placeholder="Search scans, artifacts, CVEs..."
                 readOnly
                 style={{
                   width: '100%',
-                  paddingLeft: '2.25rem',
-                  paddingRight: '0.875rem',
+                  paddingLeft: '2.35rem',
+                  paddingRight: '2.25rem',
                   paddingTop: '0.45rem',
                   paddingBottom: '0.45rem',
                   fontSize: '0.85rem',
                   background: 'var(--color-btn-ghost-bg)',
                   border: '1px solid var(--color-border)',
                   borderRadius: 8,
-                  color: 'var(--color-text-muted)',
+                  color: 'var(--color-text)',
                   outline: 'none',
                   cursor: 'default',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
               />
+              <span style={{
+                position: 'absolute',
+                right: '0.75rem',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: 'var(--color-text-muted)',
+                background: 'var(--color-border)',
+                padding: '0.1rem 0.35rem',
+                borderRadius: 4,
+                lineHeight: 1.2,
+                pointerEvents: 'none',
+              }}>
+                /
+              </span>
             </div>
           </div>
 
-          {/* Right: theme toggle + New Scan button */}
+          {/* Right: notifications + theme toggle + New Scan button */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            {/* Notification bell */}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              title="Notifications (System active)"
+              style={{
+                padding: '0.45rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 8,
+                width: 36,
+                height: 36,
+                position: 'relative',
+              }}
+              onClick={() => toast.info('System notification: All scanners operational.')}
+            >
+              <Bell size={17} style={{ color: 'var(--color-text-muted)' }} />
+              <span style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: '#8b5cf6',
+                boxShadow: '0 0 6px #8b5cf6',
+              }} />
+            </button>
+
             {/* Theme toggle — icon-only, clean */}
             <button
               id="btn-theme-toggle"
@@ -469,7 +517,19 @@ export default function Layout({ children }) {
 
             <button
               className="btn btn-primary"
-              style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              style={{
+                fontSize: '0.82rem',
+                padding: '0.45rem 0.95rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                fontWeight: 700,
+                background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+                boxShadow: '0 4px 12px rgba(124, 58, 237, 0.35)',
+                border: 'none',
+                color: '#ffffff',
+                borderRadius: 8,
+              }}
               onClick={() => navigate('/upload')}
             >
               <UploadCloud size={15} />

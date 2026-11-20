@@ -1,15 +1,15 @@
 /**
- * AISecGuard — Enterprise Login Page
- * Clean, production-ready cybersecurity authentication UI.
- * Connects directly to the backend database with isolated user workspaces.
+ * AISecGuard — Premium Glassmorphism Login Page
+ * Enterprise AI Supply Chain Security authentication.
+ * Connected directly to the backend database with isolated user workspaces.
  */
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import {
-  Shield,
   Mail,
   Lock,
   Eye,
@@ -18,9 +18,10 @@ import {
   CheckCircle2,
   ArrowRight,
   ShieldCheck,
-  Sun,
-  Moon,
+  Check,
 } from 'lucide-react';
+import AuthLayout from '../components/auth/AuthLayout';
+import ForgotPasswordModal from '../components/auth/ForgotPasswordModal';
 
 export default function LoginPage() {
   const { login, user, authError } = useAuth();
@@ -42,6 +43,8 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgotModalOpen, setForgotModalOpenOpen] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
 
   const registeredSuccess = location.state?.registered;
   const registeredEmail = location.state?.email;
@@ -72,287 +75,343 @@ export default function LoginPage() {
     }
   };
 
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--color-bg)',
-        padding: '2.5rem 1.25rem',
-        position: 'relative',
-      }}
-    >
-      {/* Top right theme toggle */}
-      <div style={{ position: 'absolute', top: '1.25rem', right: '1.5rem' }}>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={toggleTheme}
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} theme`}
-          style={{
-            fontSize: '0.8rem',
-            padding: '0.4rem 0.75rem',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.45rem',
-            color: 'var(--color-text)',
-            borderRadius: 8,
-          }}
-        >
-          {theme === 'dark' ? (
-            <>
-              <Sun size={15} style={{ color: '#fbbf24' }} />
-              <span>Light</span>
-            </>
-          ) : (
-            <>
-              <Moon size={15} style={{ color: '#6366f1' }} />
-              <span>Dark</span>
-            </>
-          )}
-        </button>
-      </div>
+  const isDark = theme === 'dark';
 
-      <div style={{ width: '100%', maxWidth: 440 }}>
-        {/* Brand Header */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <img
-            src="/logos/logo-icon.png"
-            alt="AISecGuard Logo"
+  return (
+    <AuthLayout
+      theme={theme}
+      toggleTheme={toggleTheme}
+      title="Welcome Back"
+      subtitle="Secure your AI supply chain. Sign in to continue."
+      icon="/logos/logo-icon.png"
+    >
+      {/* Success Notification if redirected from registration */}
+      <AnimatePresence>
+        {registeredSuccess && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
             style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              margin: '0 auto 1.1rem',
-              display: 'block',
-              boxShadow: '0 8px 24px rgba(79, 126, 247, 0.35)',
-              objectFit: 'contain',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              padding: '0.85rem 1rem',
+              borderRadius: 12,
+              background: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+              border: isDark ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(16, 185, 129, 0.3)',
+              color: isDark ? '#34d399' : '#059669',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
-          />
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.025em' }}>
-            Welcome Back
-          </h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.35rem' }}>
-            Sign in to access your AISecGuard workspace
-          </p>
+          >
+            <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+            <span>Account created successfully! Please sign in with your credentials.</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error Alert */}
+      <AnimatePresence>
+        {(error || authError) && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              padding: '0.85rem 1rem',
+              borderRadius: 12,
+              background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+              border: isDark ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(239, 68, 68, 0.25)',
+              color: isDark ? '#f87171' : '#dc2626',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error || authError}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} noValidate>
+        {/* Email Field */}
+        <div style={{ marginBottom: '1.25rem' }}>
+          <label
+            htmlFor="email"
+            style={{
+              display: 'block',
+              fontSize: '0.84rem',
+              fontWeight: 600,
+              marginBottom: '0.45rem',
+              color: isDark ? '#e2e8f0' : '#334155',
+            }}
+          >
+            Work Email Address
+          </label>
+          <div style={{ position: 'relative' }}>
+            <Mail
+              size={17}
+              style={{
+                position: 'absolute',
+                left: 14,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: focusedField === 'email'
+                  ? 'var(--color-primary, #3b82f6)'
+                  : isDark ? '#64748b' : '#94a3b8',
+                transition: 'color 0.2s ease',
+                pointerEvents: 'none',
+              }}
+            />
+            <input
+              id="email"
+              type="email"
+              required
+              autoFocus
+              autoComplete="email"
+              placeholder="analyst@organization.com"
+              value={email}
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => setFocusedField(null)}
+              onChange={(e) => setEmail(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.78rem 1rem 0.78rem 2.65rem',
+                fontSize: '0.92rem',
+                borderRadius: '12px',
+                background: isDark
+                  ? focusedField === 'email' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)'
+                  : focusedField === 'email' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.7)',
+                border: focusedField === 'email'
+                  ? '1px solid #3b82f6'
+                  : isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)',
+                boxShadow: focusedField === 'email'
+                  ? '0 0 0 3px rgba(59, 130, 246, 0.25)'
+                  : 'none',
+                color: isDark ? '#ffffff' : '#0f172a',
+                outline: 'none',
+                transition: 'all 0.2s ease',
+              }}
+            />
+          </div>
         </div>
 
-        {/* Feature Pill */}
+        {/* Password Field */}
+        <div style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
+            <label
+              htmlFor="password"
+              style={{
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                color: isDark ? '#e2e8f0' : '#334155',
+              }}
+            >
+              Password
+            </label>
+            <button
+              type="button"
+              onClick={() => setForgotModalOpenOpen(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-primary, #3b82f6)',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+            >
+              Forgot password?
+            </button>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Lock
+              size={17}
+              style={{
+                position: 'absolute',
+                left: 14,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: focusedField === 'password'
+                  ? 'var(--color-primary, #3b82f6)'
+                  : isDark ? '#64748b' : '#94a3b8',
+                transition: 'color 0.2s ease',
+                pointerEvents: 'none',
+              }}
+            />
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              required
+              autoComplete="current-password"
+              placeholder="••••••••••••"
+              value={password}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => setFocusedField(null)}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.78rem 2.75rem 0.78rem 2.65rem',
+                fontSize: '0.92rem',
+                borderRadius: '12px',
+                background: isDark
+                  ? focusedField === 'password' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)'
+                  : focusedField === 'password' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.7)',
+                border: focusedField === 'password'
+                  ? '1px solid #3b82f6'
+                  : isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)',
+                boxShadow: focusedField === 'password'
+                  ? '0 0 0 3px rgba(59, 130, 246, 0.25)'
+                  : 'none',
+                color: isDark ? '#ffffff' : '#0f172a',
+                outline: 'none',
+                transition: 'all 0.2s ease',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              style={{
+                position: 'absolute',
+                right: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'transparent',
+                border: 'none',
+                color: isDark ? '#94a3b8' : '#64748b',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0.35rem',
+                borderRadius: '6px',
+                transition: 'color 0.15s ease',
+              }}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Remember Me Option */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
-            padding: '0.55rem 1rem',
-            background: 'rgba(59, 130, 246, 0.08)',
-            border: '1px solid rgba(59, 130, 246, 0.25)',
-            borderRadius: 999,
-            marginBottom: '1.25rem',
-            color: '#60a5fa',
-            fontSize: '0.76rem',
-            fontWeight: 600,
+            justifyContent: 'space-between',
+            marginBottom: '1.75rem',
+            fontSize: '0.84rem',
+            color: isDark ? '#94a3b8' : '#64748b',
           }}
         >
-          <ShieldCheck size={14} style={{ color: '#38bdf8' }} />
-          <span>AI Supply Chain Security & Threat Telemetry</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', cursor: 'pointer', userSelect: 'none' }}>
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: '#3b82f6',
+                cursor: 'pointer',
+                borderRadius: 4,
+              }}
+            />
+            <span>Remember this workstation</span>
+          </label>
         </div>
 
-        {/* Main Login Card */}
-        <div className="card fade-in" style={{ padding: '2.25rem 2rem' }}>
-          {/* Success Banner if redirected from registration */}
-          {registeredSuccess && (
-            <div
-              className="alert-success"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.85rem 1rem',
-                borderRadius: 8,
-                background: 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                color: '#34d399',
-                fontSize: '0.85rem',
-                marginBottom: '1.5rem',
-              }}
-            >
-              <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
-              <span>Account created successfully! Please sign in.</span>
-            </div>
+        {/* Primary Submit Button */}
+        <motion.button
+          id="btn-login"
+          type="submit"
+          disabled={loading}
+          whileHover={{ scale: 1.015, translateY: -1 }}
+          whileTap={{ scale: 0.985 }}
+          style={{
+            width: '100%',
+            padding: '0.85rem 1.25rem',
+            fontSize: '0.95rem',
+            fontWeight: 700,
+            borderRadius: '14px',
+            border: 'none',
+            color: '#ffffff',
+            background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 50%, #7c3aed 100%)',
+            boxShadow: '0 8px 24px -4px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.6rem',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.8 : 1,
+            transition: 'box-shadow 0.2s ease',
+          }}
+        >
+          {loading ? (
+            <>
+              <span
+                style={{
+                  width: 18,
+                  height: 18,
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: '#ffffff',
+                  borderRadius: '50%',
+                  display: 'inline-block',
+                  animation: 'spin 0.7s linear infinite',
+                }}
+              />
+              <span>Signing In…</span>
+            </>
+          ) : (
+            <>
+              <span>Sign In to AISecGuard</span>
+              <ArrowRight size={17} />
+            </>
           )}
+        </motion.button>
+      </form>
 
-          {/* Error Notification */}
-          {(error || authError) && (
-            <div
-              className="alert-error"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.85rem 1rem',
-                borderRadius: 8,
-                background: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                color: '#f87171',
-                fontSize: '0.85rem',
-                marginBottom: '1.5rem',
-              }}
-            >
-              <AlertCircle size={18} style={{ flexShrink: 0 }} />
-              <span>{error || authError}</span>
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label className="label" htmlFor="email" style={{ fontWeight: 600 }}>
-                Work Email Address
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Mail
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--color-text-muted)',
-                  }}
-                />
-                <input
-                  id="email"
-                  className="input"
-                  style={{ paddingLeft: '2.25rem' }}
-                  type="email"
-                  placeholder="analyst@organization.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
-                <label className="label" htmlFor="password" style={{ fontWeight: 600, marginBottom: 0 }}>
-                  Password
-                </label>
-              </div>
-              <div style={{ position: 'relative' }}>
-                <Lock
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--color-text-muted)',
-                  }}
-                />
-                <input
-                  id="password"
-                  className="input"
-                  style={{ paddingLeft: '2.25rem', paddingRight: '2.5rem' }}
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  style={{
-                    position: 'absolute',
-                    right: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--color-text-muted)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Remember Me Option */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '1.5rem',
-                fontSize: '0.825rem',
-                color: 'var(--color-text-muted)',
-              }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  style={{ accentColor: 'var(--color-primary)', cursor: 'pointer' }}
-                />
-                <span>Remember this workstation</span>
-              </label>
-            </div>
-
-            <button
-              id="btn-login"
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                fontSize: '0.925rem',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              {loading ? (
-                <>
-                  <span className="spinner" style={{ width: 16, height: 16 }} />
-                  <span>Signing In…</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In to AISecGuard</span>
-                  <ArrowRight size={16} />
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-
-        {/* Footer Link */}
-        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-          Don't have an account?{' '}
-          <Link to="/register" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-            Create an account
-          </Link>
-        </p>
-
-        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-          <Link to="/" style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', textDecoration: 'none' }}>
-            ← Return to Homepage
-          </Link>
-        </div>
+      {/* Navigation Footer Link */}
+      <div
+        style={{
+          marginTop: '1.75rem',
+          paddingTop: '1.5rem',
+          borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)',
+          textAlign: 'center',
+          fontSize: '0.86rem',
+          color: isDark ? '#94a3b8' : '#64748b',
+        }}
+      >
+        Don't have an account?{' '}
+        <Link
+          to="/register"
+          style={{
+            color: 'var(--color-primary, #3b82f6)',
+            fontWeight: 700,
+            textDecoration: 'none',
+            marginLeft: '0.25rem',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+        >
+          Create an account →
+        </Link>
       </div>
-    </div>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal
+        isOpen={forgotModalOpen}
+        onClose={() => setForgotModalOpenOpen(false)}
+        theme={theme}
+      />
+    </AuthLayout>
   );
 }
