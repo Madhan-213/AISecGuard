@@ -34,6 +34,8 @@ from sqlalchemy.orm import Session
 from app.models.artifact import Artifact
 from app.models.scan import Scan
 from app.models.finding import Finding
+from app.models.activity_log import ActivityLog
+from app.models.notification import Notification
 from app.models.enums import ArtifactStatus, ScanStatus, RiskLevel
 from app.scanners import run_scanner
 from app.services.integrity_service import run_integrity_checks
@@ -252,6 +254,38 @@ def run_scan(artifact_id: str, db: Session, existing_scan_id: str | None = None)
         scan.risk_score = risk_score
         scan.completed_at = datetime.now(timezone.utc)
         artifact.status = final_status
+
+        # Create ActivityLog
+        try:
+            act_log = ActivityLog(
+                user_id=scan.user_id,
+                action="SCAN_COMPLETED",
+                entity_type="SCAN",
+                entity_id=scan.id,
+                details=f"Scan completed for '{artifact.original_filename}': Risk {risk_level.value} (score {risk_score}), {len(findings_data)} findings detected.",
+            )
+            db.add(act_log)
+
+            if risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                notif = Notification(
+                    user_id=scan.user_id,
+                    title=f"Security Alert: {risk_level.value} Risk Detected",
+                    message=f"Scan of '{artifact.original_filename}' flagged {len(findings_data)} security findings with risk score {risk_score}.",
+                    severity="CRITICAL" if risk_level == RiskLevel.CRITICAL else "WARNING",
+                    link=f"/scans/{scan.id}",
+                )
+                db.add(notif)
+            else:
+                notif = Notification(
+                    user_id=scan.user_id,
+                    title=f"Scan Completed: {artifact.original_filename}",
+                    message=f"Security analysis finished with {risk_level.value} risk (score {risk_score}).",
+                    severity="SUCCESS" if risk_level == RiskLevel.LOW else "INFO",
+                    link=f"/scans/{scan.id}",
+                )
+                db.add(notif)
+        except Exception as log_exc:
+            logger.debug("Failed creating scan completion audit: %s", log_exc)
 
         db.commit()
         db.refresh(scan)

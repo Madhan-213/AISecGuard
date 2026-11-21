@@ -79,6 +79,9 @@ yarn-error.log*
 frontend/dist/
 frontend/build/
 frontend/.env
+admin-portal/dist/
+admin-portal/build/
+admin-portal/.env
 
 # --- Docker ---
 .docker/

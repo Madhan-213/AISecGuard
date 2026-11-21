@@ -22,9 +22,11 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",   # Vite dev server
-        "http://localhost:3000",   # Alternative frontend port
+        "http://localhost:5173",   # User Portal Vite dev server
         "http://127.0.0.1:5173",
+        "http://localhost:5174",   # Admin Control Portal Vite dev server
+        "http://127.0.0.1:5174",
+        "http://localhost:3000",   # Alternative frontend port
     ]
 
     # Database — in-memory by default (Zero disk database required)

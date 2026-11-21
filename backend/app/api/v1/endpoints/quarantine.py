@@ -20,6 +20,8 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user, get_analyst_or_admin
 from app.models.artifact import Artifact
 from app.models.quarantine_event import QuarantineEvent
+from app.models.activity_log import ActivityLog
+from app.models.notification import Notification
 from app.services.audit_service import append_event
 from app.models.enums import ArtifactStatus
 from app.models.user import User
@@ -103,6 +105,25 @@ def quarantine_artifact(
         actor_email=current_user.email,
     )
     append_event(db, event)
+
+    act_log = ActivityLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="ARTIFACT_QUARANTINED",
+        entity_type="ARTIFACT",
+        entity_id=artifact_id,
+        details=f"Quarantined artifact '{artifact.original_filename}'. Reason: {body.reason}",
+    )
+    db.add(act_log)
+
+    notif = Notification(
+        title="Artifact Quarantined",
+        message=f"Artifact '{artifact.original_filename}' was quarantined by {current_user.email}. Reason: {body.reason}",
+        severity="WARNING",
+        link="/quarantine",
+    )
+    db.add(notif)
+
     db.commit()
     db.refresh(event)
 
@@ -170,6 +191,25 @@ def release_artifact(
         actor_email=current_user.email,
     )
     append_event(db, event)
+
+    act_log = ActivityLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="ARTIFACT_RELEASED",
+        entity_type="ARTIFACT",
+        entity_id=artifact_id,
+        details=f"Released artifact '{artifact.original_filename}' from quarantine. Reason: {body.reason}",
+    )
+    db.add(act_log)
+
+    notif = Notification(
+        title="Artifact Released from Quarantine",
+        message=f"Artifact '{artifact.original_filename}' was released from quarantine by {current_user.email}.",
+        severity="INFO",
+        link="/artifacts",
+    )
+    db.add(notif)
+
     db.commit()
     db.refresh(event)
 

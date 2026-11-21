@@ -426,3 +426,61 @@ async def scan_status_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{scan_id}
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/{scan_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a scan and its associated files",
+)
+def delete_scan(
+    scan_id: str,
+    delete_file: bool = Query(True, description="Also remove the physical file and artifact if unused by other scans"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete a scan and its findings.
+    If delete_file is True and the associated artifact is not referenced by any other scans,
+    the artifact record and its stored file on disk are also cleaned up.
+    """
+    scan = db.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan not found: {scan_id}",
+        )
+
+    if current_user and scan.user_id and scan.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this scan.",
+        )
+
+    artifact_id = scan.artifact_id
+    db.delete(scan)
+    db.commit()
+
+    if delete_file and artifact_id:
+        artifact = db.get(Artifact, artifact_id)
+        if artifact:
+            # Check if any other scan still references this artifact
+            remaining = db.execute(
+                select(func.count(Scan.id)).where(Scan.artifact_id == artifact_id)
+            ).scalar_one()
+            if remaining == 0:
+                # Remove physical file from disk
+                try:
+                    storage_file = Path(artifact.storage_path)
+                    if storage_file.is_file():
+                        storage_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                db.delete(artifact)
+                db.commit()
+
+    return None

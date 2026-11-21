@@ -331,3 +331,75 @@ def download_report(
         content=report,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Reports List Router (for Security Reports page)
+# ---------------------------------------------------------------------------
+
+reports_list_router = APIRouter()
+
+
+@reports_list_router.get(
+    "/",
+    summary="List all completed security reports",
+)
+def list_reports(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    risk_level: Optional[str] = Query(None, description="Filter by risk level"),
+    db: Session = Depends(get_db),
+):
+    """
+    List all completed scans with artifact metadata, risk level, score,
+    and direct download links for PDF and JSON security reports.
+    """
+    stmt = (
+        select(Scan, Artifact)
+        .join(Artifact, Scan.artifact_id == Artifact.id)
+        .where(Scan.status == "COMPLETED")
+    )
+
+    if risk_level:
+        stmt = stmt.where(Scan.risk_level == risk_level.upper())
+
+    stmt = stmt.order_by(Scan.completed_at.desc().nullslast())
+
+    results = db.execute(stmt.offset(skip).limit(limit)).all()
+    total_count = db.scalar(
+        select(func.count(Scan.id)).where(Scan.status == "COMPLETED")
+    ) or 0
+
+    reports_data = []
+    for scan_obj, art_obj in results:
+        # Count findings for this scan
+        f_counts = db.execute(
+            select(Finding.severity, func.count(Finding.id))
+            .where(Finding.scan_id == scan_obj.id)
+            .group_by(Finding.severity)
+        ).all()
+        sev_map = {str(sev): cnt for sev, cnt in f_counts}
+
+        reports_data.append({
+            "scan_id": scan_obj.id,
+            "artifact_id": art_obj.id,
+            "artifact_name": art_obj.original_filename,
+            "artifact_type": _normalize_enum_val(art_obj.artifact_type),
+            "file_size": art_obj.file_size,
+            "sha256": art_obj.sha256,
+            "risk_level": _normalize_enum_val(scan_obj.risk_level),
+            "risk_score": scan_obj.risk_score or 0,
+            "completed_at": scan_obj.completed_at.isoformat() if scan_obj.completed_at else None,
+            "findings_count": sum(sev_map.values()),
+            "critical_count": sev_map.get("CRITICAL", 0),
+            "high_count": sev_map.get("HIGH", 0),
+            "medium_count": sev_map.get("MEDIUM", 0),
+            "low_count": sev_map.get("LOW", 0),
+            "json_url": f"/api/v1/scans/{scan_obj.id}/report?format=json",
+            "pdf_url": f"/api/v1/scans/{scan_obj.id}/report?format=pdf",
+        })
+
+    return {
+        "total": total_count,
+        "reports": reports_data,
+    }

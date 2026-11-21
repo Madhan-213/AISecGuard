@@ -73,6 +73,7 @@ export const artifactsApi = {
   release: (id, reason) =>
     apiClient.post(`/api/v1/artifacts/${id}/release`, { reason }),
   events: (id) => apiClient.get(`/api/v1/artifacts/${id}/events`),
+  delete: (id) => apiClient.delete(`/api/v1/artifacts/${id}`),
 };
 
 // --- Scans ---
@@ -80,6 +81,8 @@ export const scansApi = {
   list: (params) => apiClient.get('/api/v1/scans/', { params }),
   get: (id) => apiClient.get(`/api/v1/scans/${id}`),
   create: (artifact_id) => apiClient.post('/api/v1/scans/', { artifact_id }),
+  delete: (id, deleteFile = true) =>
+    apiClient.delete(`/api/v1/scans/${id}`, { params: { delete_file: deleteFile } }),
   scanModel: (formData) =>
     apiClient.post('/api/v1/scans/model', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -159,6 +162,41 @@ export const apiKeysApi = {
   list: () => apiClient.get('/api/v1/api-keys'),
   create: (name) => apiClient.post('/api/v1/api-keys', { name }),
   revoke: (id) => apiClient.delete(`/api/v1/api-keys/${id}`),
+};
+
+// --- Activity Logs ---
+export const activityLogsApi = {
+  list: (params) => apiClient.get('/api/v1/activity-logs/', { params }),
+  create: (data) => apiClient.post('/api/v1/activity-logs/', data),
+};
+
+// --- Security Policies ---
+export const policiesApi = {
+  list: () => apiClient.get('/api/v1/policies/'),
+  update: (id, data) => apiClient.put(`/api/v1/policies/${id}`, data),
+};
+
+// --- Notifications ---
+export const notificationsApi = {
+  list: () => apiClient.get('/api/v1/notifications/'),
+  markAsRead: (id) => apiClient.patch(`/api/v1/notifications/${id}/read`),
+  markAllAsRead: () => apiClient.post('/api/v1/notifications/read-all'),
+  delete: (id) => apiClient.delete(`/api/v1/notifications/${id}`),
+};
+
+// --- Security Reports ---
+export const reportsApi = {
+  list: (params) => apiClient.get('/api/v1/reports/', { params }),
+  get: (scanId, format = 'json') =>
+    apiClient.get(`/api/v1/scans/${scanId}/report`, {
+      params: { format },
+      responseType: format === 'pdf' ? 'blob' : 'json',
+    }),
+};
+
+// --- Cryptographic Integrity & Provenance ---
+export const integrityApi = {
+  overview: () => apiClient.get('/api/v1/integrity/overview'),
 };
 
 /** Where the browser reaches the API: VITE_API_BASE_URL, or this site's own origin. */

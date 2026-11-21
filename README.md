@@ -26,6 +26,7 @@
 - [Technology Stack](#-technology-stack)
 - [Quick Start Guide](#-quick-start-guide)
 - [Default Login Credentials](#-default-login-credentials)
+- [Admin Control Portal](#-admin-control-portal)
 - [Key Endpoints & Admin Panel](#-key-endpoints--admin-panel)
 - [Threat Detection Rules](#-threat-detection-rules)
 - [Directory Structure](#-directory-structure)
@@ -200,7 +201,7 @@ cd AISecGuard
    npm install
    ```
 
-3. Start the frontend development server:
+3. Start the frontend development server:nn
    ```powershell
    npm run dev
    ```
@@ -212,15 +213,60 @@ cd AISecGuard
 
 ## 🔑 Default Login Credentials
 
-The system seeds three role-based accounts during initialization:
+The system initializes default role-based accounts during startup:
 
-| Role | Email Address | Password | Permissions |
+| Role | Email Address | Password | Permissions & Scope |
 | :--- | :--- | :--- | :--- |
-| **ADMIN** | `admin@aisecguard.local` | `AdminPassword@123` | Full Access + `/admin` Database GUI |
-| **ANALYST** | `analyst@aisecguard.local` | `AnalystPassword@123` | Upload, Scan, Sign, Lineage Edges |
-| **AUDITOR** | `auditor@aisecguard.local` | `AuditorPassword@123` | Read-only scan & audit inspection |
+| **SUPER_ADMIN** | `admin@aisecguard.local` | `AdminPassword@123` | **Full Platform Authority:** User account lifecycle, disaster recovery & database restore, security policy updates, and complete admin portal control. |
+| **ADMIN** | `admin@aisecguard.local` | `AdminPassword@123` | User suspension/activation, telemetry inspection, security logs, point-in-time backups. |
+| **ANALYST** | `analyst@aisecguard.local` | `AnalystPassword@123` | Upload models/datasets, run security scans, sign artifacts (Ed25519), build lineage edges. |
+| **AUDITOR** | `auditor@aisecguard.local` | `AuditorPassword@123` | Read-only compliance mode: audit logs, verification reports, and finding history. |
+| **USER** | *(Self-registered)* | *(Custom)* | Standard private user portal workspace with isolated artifacts, scans, and reports. |
 
-> 👤 *New users who register via the Registration page receive their own fresh account with private data isolation.*
+> 🔒 *Security Note: Non-admin users attempting to access administrative endpoints or pages are strictly blocked with `HTTP 403 Forbidden` and logged in the forensic Security Events ledger.*
+
+---
+
+## 🎛️ Admin Control Portal
+
+AISecGuard features a separate, privileged **Admin Control Portal** designed for cybersecurity administrators to govern the platform, monitor live infrastructure telemetry, conduct forensic audits, and execute disaster recovery operations.
+
+### 1. Privileged Navigation & Routes
+
+| Route | View | Description | Access Level |
+| :--- | :--- | :--- | :--- |
+| `/admin/login` | **Admin Gateway** | Dedicated privileged login screen with cyber-shield theme. | Public / Admin |
+| `/admin/dashboard` | **Control Center** | Aggregated telemetry, user stats, 14-day scan timeline, risk distribution. | Admin |
+| `/admin/users` | **User Governance** | User list with scan/upload counts, last login, active/suspend toggle, role modifier. | Admin / Super Admin |
+| `/admin/roles` | **RBAC Matrix** | Role definitions, permission breakdown, and privilege hierarchy. | Admin |
+| `/admin/activity-logs` | **Forensic Audit Logs** | Comprehensive audit trail of all platform actions with user correlation. | Admin |
+| `/admin/audit-reports` | **Compliance Reports** | Exportable compliance and activity logs in CSV and structured JSON formats. | Admin |
+| `/admin/security-events` | **Threat Events Ledger** | Automated security event log (failed logins, privilege escalation attempts). | Admin |
+| `/admin/login-history` | **Session Forensics** | Historical authentication attempts with IP addresses, user agents, and status. | Admin |
+| `/admin/settings` | **Platform Config** | Dynamic configuration: upload limits, timeouts, scan concurrency limits. | Admin |
+| `/admin/security-policies`| **Security Policies** | Rule severity overrides, quarantine automation thresholds, enforcement toggles. | Admin |
+| `/admin/scan-configuration`| **Scanner Engines** | Engine diagnostics for AST bytecode, dataset heuristics, and CVE correlation. | Admin |
+| `/admin/system-health` | **Live Diagnostics** | Real-time API uptime, database latency, scanner health, and disk usage bars. | Admin |
+| `/admin/backups` | **Disaster Recovery** | Point-in-time database snapshot generation and SHA-256 integrity restore. | Super Admin (Restore) |
+
+### 2. Dual Deployment Architecture
+
+AISecGuard provides two flexible ways to run the Admin Control Portal:
+
+1. **Unified Application Mode (Default & Seamless):**
+   - The Admin Portal is baked into the main frontend router under `/admin/*`.
+   - Access anytime via **`http://localhost:5173/admin/login`** or click the discreet **"Admin Login"** link in the public homepage footer.
+   - Automatically synchronizes theme, authentication tokens, and API requests through `frontend/src/admin/`.
+
+2. **Decoupled Standalone Mode (`admin-portal/`):**
+   - An independent Vite + React application located in `admin-portal/`.
+   - Runs on its own dedicated port **`http://localhost:5174`** for air-gapped or isolated administrative hosting.
+   - Run via:
+     ```powershell
+     cd admin-portal
+     npm install
+     npm run dev
+     ```
 
 ---
 
@@ -228,8 +274,11 @@ The system seeds three role-based accounts during initialization:
 
 | Service | URL | Description |
 | :--- | :--- | :--- |
-| **Web Dashboard** | `http://localhost:5173` | Main SaaS user interface |
-| **Database Administration** | `http://localhost:8000/admin` | Full Django-style database GUI (Log in with Admin credentials) |
+| **User Application** | `http://localhost:5173` | Main SaaS user interface for scanning and supply chain defense |
+| **Admin Control Portal** | `http://localhost:5173/admin/login` | Full cybersecurity administrative governance console |
+| **Standalone Admin Portal** | `http://localhost:5174` | Decoupled admin application (optional isolated host) |
+| **Admin REST API** | `http://localhost:8000/api/v1/admin/*` | Role-protected administrative REST endpoints |
+| **Database Administration** | `http://localhost:8000/admin` | SQLAdmin Django-style low-level ORM table browser |
 | **Swagger Interactive Docs** | `http://localhost:8000/docs` | OpenAPI REST interactive API documentation |
 | **ReDoc Documentation** | `http://localhost:8000/redoc` | Clean API reference docs |
 | **System Health Check** | `http://localhost:8000/health` | Service status & engine diagnostic endpoint |
@@ -269,14 +318,30 @@ AISecGuard/
 │   ├── uploads/              # Isolated directory for uploaded artifacts
 │   ├── main.py               # FastAPI application entrypoint
 │   └── requirements.txt      # Backend Python dependencies
+├── admin-portal/             # Standalone Admin Control Portal (React + Vite)
+│   ├── src/
+│   │   ├── api/adminClient.js
+│   │   ├── components/AdminLayout.jsx
+│   │   ├── context/AdminAuthContext.jsx
+│   │   ├── pages/            # 13 Dedicated administrative management pages
+│   │   ├── App.jsx           # Standalone admin routing
+│   │   └── index.css         # Cybersecurity dark theme styling
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js        # Port 5174 proxying to port 8000
 ├── frontend/
 │   ├── public/logos/         # Production logos, icons, and favicons
 │   ├── src/
+│   │   ├── admin/            # Integrated Admin Control Portal modules
+│   │   │   ├── api/adminClient.js
+│   │   │   ├── components/AdminLayout.jsx
+│   │   │   ├── context/AdminAuthContext.jsx
+│   │   │   └── pages/        # All 13 Admin pages (Dashboard, Users, Health, Backups, etc.)
 │   │   ├── api/              # Axios API client & endpoints
 │   │   ├── components/       # Layout, Navbar, Charts, Modals, CyberLogo
 │   │   ├── context/          # AuthContext, ThemeContext, ToastContext
-│   │   ├── pages/            # Dashboard, Upload, Scans, Settings, Login, Register
-│   │   ├── App.jsx           # Main React component & routing
+│   │   ├── pages/            # User Dashboard, Upload, Scans, Settings, Login, Register
+│   │   ├── App.jsx           # Main React component & unified route authorization
 │   │   └── index.css         # SaaS design tokens, themes & typography
 │   ├── index.html            # Application entrypoint & favicon links
 │   ├── package.json          # Frontend dependencies

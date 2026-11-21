@@ -116,6 +116,32 @@ export const deviceCache = {
   },
 
   /**
+   * Delete a scan from cache
+   */
+  deleteScan(scanId) {
+    const key = getKey('scans');
+    const scans = this.getScans().filter((s) => s.id !== scanId);
+    writeJson(key, scans);
+
+    const fKey = getKey('findings');
+    const findings = readJson(fKey, []).filter((f) => f.scan_id !== scanId);
+    writeJson(fKey, findings);
+  },
+
+  /**
+   * Delete an artifact and its associated scans from cache
+   */
+  deleteArtifact(artifactId) {
+    const key = getKey('artifacts');
+    const list = this.getArtifacts().filter((a) => a.id !== artifactId);
+    writeJson(key, list);
+
+    const scansKey = getKey('scans');
+    const scans = this.getScans().filter((s) => s.artifact_id !== artifactId);
+    writeJson(scansKey, scans);
+  },
+
+  /**
    * Retrieve all cached artifacts for current user
    */
   getArtifacts() {

@@ -34,6 +34,7 @@ artifact_router = APIRouter()
 lineage_router = APIRouter(prefix="/api/v1/lineage")  # own prefix: POST at the bare path
 signing_router = APIRouter()
 audit_router = APIRouter()
+integrity_router = APIRouter(prefix="/api/v1/integrity")
 
 
 class LinkRequest(BaseModel):
@@ -162,3 +163,54 @@ def delete_link(edge_id: str, db: Session = Depends(get_db), user: User = Depend
 @audit_router.get("/verify", summary="Verify the tamper-evident audit log")
 def verify_audit(db: Session = Depends(get_db)):
     return audit_service.verify_chain(db)
+
+
+# ---------------------------------------------------------------------------
+# Cryptographic Integrity & Provenance Verification
+# ---------------------------------------------------------------------------
+
+@integrity_router.get("/overview", summary="Cryptographic integrity & provenance overview across artifacts")
+def integrity_overview(db: Session = Depends(get_db)):
+    from pathlib import Path
+    from app.services.queries import baseline_provenance
+    from app.utils.hashing import compute_sha256_file
+
+    artifacts = db.query(Artifact).order_by(Artifact.uploaded_at.desc()).all()
+    results = []
+    for art in artifacts:
+        prov = baseline_provenance(db, art.id)
+        disk_match = True
+        try:
+            if art.storage_path and Path(art.storage_path).exists():
+                curr_sha = compute_sha256_file(art.storage_path)
+                disk_match = (curr_sha == art.sha256)
+        except Exception:
+            disk_match = False
+
+        sig_info = signing_service.verify_artifact(db, art)
+
+        status_str = "VERIFIED"
+        if not disk_match:
+            status_str = "TAMPERED"
+        elif prov and prov.expected_sha256 and prov.expected_sha256.lower() != art.sha256.lower():
+            status_str = "MISMATCH"
+        elif not sig_info.get("signed", False):
+            status_str = "UNVERIFIED"
+
+        results.append({
+            "artifact_id": art.id,
+            "filename": art.original_filename,
+            "artifact_type": str(art.artifact_type),
+            "file_size": art.file_size,
+            "sha256": art.sha256,
+            "source_url": prov.source_url if prov else None,
+            "expected_sha256": prov.expected_sha256 if prov else None,
+            "disk_integrity_ok": disk_match,
+            "is_signed": sig_info.get("signed", False),
+            "signature_valid": sig_info.get("valid", False),
+            "signer_email": sig_info.get("signer_email"),
+            "key_id": sig_info.get("key_id"),
+            "status": status_str,
+            "uploaded_at": art.uploaded_at.isoformat() if art.uploaded_at else None,
+        })
+    return {"total": len(results), "items": results}

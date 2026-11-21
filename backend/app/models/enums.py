@@ -74,8 +74,10 @@ class FindingType(str, enum.Enum):
 
 
 class UserRole(str, enum.Enum):
-    """RBAC roles for AISecGuard users (Task 4)."""
+    """RBAC roles for AISecGuard platform."""
+    SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     ANALYST = "ANALYST"
+    USER = "USER"
     AUDITOR = "AUDITOR"
 

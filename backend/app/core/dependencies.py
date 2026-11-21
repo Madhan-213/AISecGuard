@@ -97,19 +97,37 @@ def get_current_user(
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     """
-    FastAPI dependency: requires the current user to be an admin.
+    FastAPI dependency: requires the current user to have administrative privileges.
 
-    Raises HTTP 403 if user is not admin.
-    Use as: `admin: User = Depends(get_current_admin)`
+    Raises HTTP 403 if user is not ADMIN or SUPER_ADMIN.
     """
     if current_user.id == LOCAL_ANALYST_ID:
         return current_user
-    if not current_user.is_admin and current_user.role != UserRole.ADMIN.value:
+    if not current_user.is_admin and current_user.role not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="Administrative privileges required. Access denied.",
         )
     return current_user
+
+
+def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    FastAPI dependency: requires the current user to be a SUPER_ADMIN.
+    Used for sensitive operations like user deletion, role promotions, and database restoration.
+    """
+    if current_user.id == LOCAL_ANALYST_ID:
+        return current_user
+    if current_user.role != UserRole.SUPER_ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Administrator privileges required for this sensitive operation.",
+        )
+    return current_user
+
+
+# Convenience shorthand
+require_admin_role = get_current_admin
 
 
 # ---------------------------------------------------------------------------
