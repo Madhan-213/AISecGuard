@@ -3,18 +3,29 @@
  * White sidebar, clean typography, soft shadows — matching modern SaaS reference.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { useToast } from '../context/ToastContext';
+import { notificationsApi } from '../api/client';
 import {
   LayoutDashboard,
   UploadCloud,
   History,
   ShieldAlert,
+  Layers,
+  FileText,
   GitBranch,
+  AlertTriangle,
+  Cpu,
+  Database,
+  Fingerprint,
+  Bell,
+  ScrollText,
+  Sliders,
   Settings,
+  Info,
   Menu,
   X,
   LogOut,
@@ -25,7 +36,6 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
-  Bell,
 } from 'lucide-react';
 
 const MAIN_MENU = [
@@ -33,14 +43,27 @@ const MAIN_MENU = [
   { path: '/upload', label: 'Upload & Scan', icon: UploadCloud },
   { path: '/scans', label: 'Scan History', icon: History },
   { path: '/quarantine', label: 'Quarantine', icon: ShieldAlert },
+  { path: '/artifacts', label: 'Artifact Registry', icon: Layers },
+  { path: '/reports', label: 'Security Reports', icon: FileText },
 ];
 
-const TOOLS_MENU = [
+const SECURITY_ANALYSIS_MENU = [
   { path: '/supply-chain', label: 'Supply Chain', icon: GitBranch },
+  { path: '/vulnerabilities', label: 'Vulnerability Analysis', icon: AlertTriangle },
+  { path: '/models', label: 'Model Analysis', icon: Cpu },
+  { path: '/datasets', label: 'Dataset Analysis', icon: Database },
+  { path: '/integrity', label: 'Integrity & Provenance', icon: Fingerprint },
+];
+
+const MANAGEMENT_MENU = [
+  { path: '/notifications', label: 'Notifications', icon: Bell, hasBadge: true },
+  { path: '/activity-logs', label: 'Activity Logs', icon: ScrollText },
+  { path: '/policies', label: 'Security Policies', icon: Sliders },
 ];
 
 const SYSTEM_MENU = [
   { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/about', label: 'Help & About', icon: Info },
 ];
 
 function SectionLabel({ children }) {
@@ -49,18 +72,18 @@ function SectionLabel({ children }) {
       fontSize: '0.68rem',
       fontWeight: 700,
       textTransform: 'uppercase',
-      letterSpacing: '0.1em',
+      letterSpacing: '0.08em',
       color: 'var(--color-text-muted)',
       padding: '0 0.75rem',
       marginBottom: '0.35rem',
-      marginTop: '0.25rem',
+      marginTop: '0.45rem',
     }}>
       {children}
     </div>
   );
 }
 
-function NavItem({ item }) {
+function NavItem({ item, unreadCount }) {
   const Icon = item.icon;
   return (
     <NavLink
@@ -70,10 +93,10 @@ function NavItem({ item }) {
       style={({ isActive }) => ({
         display: 'flex',
         alignItems: 'center',
-        gap: '0.7rem',
-        padding: '0.6rem 0.85rem',
+        gap: '0.65rem',
+        padding: '0.55rem 0.8rem',
         borderRadius: 10,
-        fontSize: '0.85rem',
+        fontSize: '0.82rem',
         fontWeight: isActive ? 600 : 500,
         color: isActive ? '#ffffff' : 'var(--color-text-muted)',
         background: isActive
@@ -99,10 +122,25 @@ function NavItem({ item }) {
     >
       {({ isActive }) => (
         <>
-          <Icon size={17} style={{ color: isActive ? '#ffffff' : 'var(--color-text-muted)', flexShrink: 0 }} />
-          <span style={{ color: isActive ? '#ffffff' : 'var(--color-text)', fontWeight: isActive ? 600 : 500 }}>
+          <Icon size={16} style={{ color: isActive ? '#ffffff' : 'var(--color-text-muted)', flexShrink: 0 }} />
+          <span style={{ color: isActive ? '#ffffff' : 'var(--color-text)', fontWeight: isActive ? 600 : 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.label}
           </span>
+          {item.hasBadge && unreadCount > 0 && (
+            <span style={{
+              background: '#ef4444',
+              color: '#ffffff',
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              padding: '0.1rem 0.4rem',
+              borderRadius: 10,
+              minWidth: 16,
+              textAlign: 'center',
+              lineHeight: 1.2,
+            }}>
+              {unreadCount}
+            </span>
+          )}
         </>
       )}
     </NavLink>
@@ -142,6 +180,29 @@ export default function Layout({ children }) {
     setLastPath(location.pathname);
     setNavOpen(false);
   }
+
+  // Live notifications count badge
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchUnread = async () => {
+      try {
+        const res = await notificationsApi.list();
+        if (mounted && res.data?.unread_count !== undefined) {
+          setUnreadCount(res.data.unread_count);
+        }
+      } catch {
+        // silent
+      }
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -247,29 +308,37 @@ export default function Layout({ children }) {
         </div>
 
         {/* Navigation Section */}
-        <div style={{ padding: '1rem 0.75rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ padding: '0.85rem 0.65rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
 
           {/* MAIN MENU */}
           <div>
             <SectionLabel>Main Menu</SectionLabel>
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-              {MAIN_MENU.map(item => <NavItem key={item.path} item={item} theme={theme} />)}
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.12rem' }}>
+              {MAIN_MENU.map(item => <NavItem key={item.path} item={item} unreadCount={unreadCount} />)}
             </nav>
           </div>
 
-          {/* TOOLS */}
+          {/* SECURITY ANALYSIS */}
           <div>
-            <SectionLabel>Tools</SectionLabel>
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-              {TOOLS_MENU.map(item => <NavItem key={item.path} item={item} theme={theme} />)}
+            <SectionLabel>Security Analysis</SectionLabel>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.12rem' }}>
+              {SECURITY_ANALYSIS_MENU.map(item => <NavItem key={item.path} item={item} unreadCount={unreadCount} />)}
+            </nav>
+          </div>
+
+          {/* MANAGEMENT */}
+          <div>
+            <SectionLabel>Management</SectionLabel>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.12rem' }}>
+              {MANAGEMENT_MENU.map(item => <NavItem key={item.path} item={item} unreadCount={unreadCount} />)}
             </nav>
           </div>
 
           {/* SYSTEM */}
-          <div style={{ marginTop: 'auto' }}>
+          <div style={{ marginTop: 'auto', paddingTop: '0.5rem' }}>
             <SectionLabel>System</SectionLabel>
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-              {SYSTEM_MENU.map(item => <NavItem key={item.path} item={item} theme={theme} />)}
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.12rem' }}>
+              {SYSTEM_MENU.map(item => <NavItem key={item.path} item={item} unreadCount={unreadCount} />)}
             </nav>
           </div>
         </div>
@@ -466,7 +535,7 @@ export default function Layout({ children }) {
             <button
               type="button"
               className="btn btn-ghost"
-              title="Notifications (System active)"
+              title={`Notifications (${unreadCount} unread)`}
               style={{
                 padding: '0.45rem',
                 display: 'inline-flex',
@@ -477,19 +546,21 @@ export default function Layout({ children }) {
                 height: 36,
                 position: 'relative',
               }}
-              onClick={() => toast.info('System notification: All scanners operational.')}
+              onClick={() => navigate('/notifications')}
             >
               <Bell size={17} style={{ color: 'var(--color-text-muted)' }} />
-              <span style={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background: '#8b5cf6',
-                boxShadow: '0 0 6px #8b5cf6',
-              }} />
+              {unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  minWidth: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  boxShadow: '0 0 6px #ef4444',
+                }} />
+              )}
             </button>
 
             {/* Theme toggle — icon-only, clean */}

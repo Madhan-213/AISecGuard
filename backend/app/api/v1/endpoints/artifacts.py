@@ -21,6 +21,8 @@ from app.core.config import settings
 from app.models.artifact import Artifact
 from app.models.user import User
 from app.models.provenance import ProvenanceRecord
+from app.models.activity_log import ActivityLog
+from app.models.notification import Notification
 from app.models.enums import ArtifactType, ArtifactStatus
 from app.schemas.artifact import ArtifactResponse, ArtifactListResponse
 from app.utils.hashing import compute_sha256_stream
@@ -163,6 +165,27 @@ async def upload_artifact(
         uploader_id=current_user.id if current_user else None,
     )
     db.add(provenance)
+
+    # Activity log and Notification
+    act_log = ActivityLog(
+        user_id=current_user.id if current_user else None,
+        user_email=current_user.email if current_user else "anonymous",
+        action="ARTIFACT_UPLOAD",
+        entity_type="ARTIFACT",
+        entity_id=artifact.id,
+        details=f"Uploaded {original_filename} ({artifact_type.value}, {len(content)} bytes)",
+    )
+    db.add(act_log)
+
+    notif = Notification(
+        user_id=current_user.id if current_user else None,
+        title="Artifact Uploaded",
+        message=f"Artifact '{original_filename}' uploaded successfully and queued for analysis.",
+        severity="INFO",
+        link="/scans",
+    )
+    db.add(notif)
+
     db.commit()
     db.refresh(artifact)
 
@@ -230,3 +253,59 @@ def get_artifact(
             detail=f"Artifact not found: {artifact_id}",
         )
     return artifact
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{artifact_id}
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/{artifact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an artifact and its physical file",
+)
+def delete_artifact(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete an artifact, its stored file on disk, and all associated scans.
+    """
+    artifact = db.get(Artifact, artifact_id)
+    if artifact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artifact not found: {artifact_id}",
+        )
+
+    if current_user and artifact.user_id and artifact.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this artifact.",
+        )
+
+    # Delete physical file from disk
+    try:
+        storage_file = Path(artifact.storage_path)
+        if storage_file.is_file():
+            storage_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    art_name = artifact.original_filename
+    art_id = artifact.id
+
+    db.delete(artifact)
+
+    del_log = ActivityLog(
+        user_id=current_user.id if current_user else None,
+        user_email=current_user.email if current_user else "admin",
+        action="ARTIFACT_DELETED",
+        entity_type="ARTIFACT",
+        entity_id=art_id,
+        details=f"Deleted artifact '{art_name}' and purged underlying storage",
+    )
+    db.add(del_log)
+    db.commit()
+    return None

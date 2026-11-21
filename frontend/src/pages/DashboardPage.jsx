@@ -39,12 +39,15 @@ import {
   BarChart3,
   ArrowRight,
   Eye,
+  Trash2,
+  X,
   FileText,
   GitBranch,
   WifiOff,
   CheckCircle2,
 } from 'lucide-react';
-import { API_ORIGIN, apiErrorMessage, exportsApi, statsApi } from '../api/client';
+import { API_ORIGIN, apiErrorMessage, exportsApi, statsApi, scansApi } from '../api/client';
+import { deviceCache } from '../utils/deviceCache';
 import { useToast } from '../context/ToastContext';
 import { useTheme } from '../hooks/useTheme';
 
@@ -264,6 +267,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshedAt, setRefreshedAt] = useState(null);
   const [exporting, setExporting] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchStats = useCallback(() => {
     return statsApi.get().then(
@@ -279,6 +284,20 @@ export default function DashboardPage() {
       }
     );
   }, []);
+
+  const handleDelete = async (scan) => {
+    setDeleting(true);
+    try {
+      await scansApi.delete(scan.id, true);
+    } catch (e) {
+      console.warn('Backend delete error:', e);
+    }
+    deviceCache.deleteScan(scan.id);
+    toast.success(`Deleted scan "${scan.artifact_name || scan.id.slice(0, 8)}" and associated files.`);
+    setDeleteModal(null);
+    setDeleting(false);
+    fetchStats();
+  };
 
   useEffect(() => {
     fetchStats();
@@ -864,37 +883,70 @@ export default function DashboardPage() {
                             {formatDateTime(s.completed_at || s.started_at)}
                           </td>
                           <td style={{ padding: '0.8rem 0.75rem', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/scans/${s.id}`);
-                              }}
-                              title="View Scan Report"
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: 8,
-                                background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
-                                border: '1px solid var(--color-border)',
-                                color: 'var(--color-text)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = '#8b5cf6';
-                                e.currentTarget.style.borderColor = '#8b5cf6';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = 'var(--color-text)';
-                                e.currentTarget.style.borderColor = 'var(--color-border)';
-                              }}
-                            >
-                              <Eye size={14} />
-                            </button>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/scans/${s.id}`);
+                                }}
+                                title="View Scan Report"
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 8,
+                                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                                  border: '1px solid var(--color-border)',
+                                  color: 'var(--color-text)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = '#8b5cf6';
+                                  e.currentTarget.style.borderColor = '#8b5cf6';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--color-text)';
+                                  e.currentTarget.style.borderColor = 'var(--color-border)';
+                                }}
+                              >
+                                <Eye size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteModal(s);
+                                }}
+                                title="Delete Scanned File & Report"
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 8,
+                                  background: isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)',
+                                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                                  color: '#ef4444',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                                  e.currentTarget.style.borderColor = '#ef4444';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+                                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                                }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1143,6 +1195,130 @@ export default function DashboardPage() {
           High / critical threats, CVEs, and rule counts evaluate each artifact&apos;s latest scan; re-scans automatically update metrics.
         </span>
       </div>
+
+      {/* ── Delete Confirmation Modal ── */}
+      {deleteModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 16, 0.7)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem',
+          }}
+        >
+          <div
+            className="card fade-in"
+            style={{
+              width: '100%',
+              maxWidth: 440,
+              position: 'relative',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 18,
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
+              padding: '1.75rem',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setDeleteModal(null)}
+              style={{
+                position: 'absolute',
+                top: '1.25rem',
+                right: '1.25rem',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                padding: 4,
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
+                  Delete Scanned File
+                </h2>
+                <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>Permanently remove scan record &amp; file</div>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              Are you sure you want to delete{' '}
+              <strong style={{ color: 'var(--color-text)' }}>
+                {deleteModal.artifact_name || deleteModal.filename || deleteModal.id.slice(0, 8)}
+              </strong>
+              ? This action will permanently remove the evaluation findings and delete the stored artifact file from storage.
+            </p>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={deleting}
+                onClick={() => setDeleteModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: 10,
+                  color: '#ffffff',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  opacity: deleting ? 0.7 : 1,
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)',
+                }}
+                onClick={() => handleDelete(deleteModal)}
+              >
+                {deleting ? (
+                  <>
+                    <span className="spinner" style={{ width: 14, height: 14 }} />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

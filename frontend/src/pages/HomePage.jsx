@@ -609,10 +609,20 @@ export default function HomePage() {
             </FooterColumn>
           </div>
           <div className="border-t border-hp-line">
-            <p className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 text-xs text-hp-faint text-center md:text-left">
-              Academic research prototype · Static analysis only · No code execution. Findings are indicators, not a
-              professional security audit.
-            </p>
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-hp-faint">
+              <p className="text-center sm:text-left">
+                Academic research prototype · Static analysis only · No code execution. Findings are indicators, not a
+                professional security audit.
+              </p>
+              <Link
+                to="/admin/login"
+                className="inline-flex items-center gap-1.5 text-hp-faint hover:text-hp-fg transition-colors whitespace-nowrap"
+                title="AISecGuard Admin Control Portal"
+              >
+                <Shield size={12} className="text-hp-accent" />
+                <span>Admin Login</span>
+              </Link>
+            </div>
           </div>
         </footer>
       </div>
