@@ -2,8 +2,8 @@
   "_metadata": {
     "description": "AISecGuard Local Vulnerability Reference Database",
     "note": "This is a curated reference list for academic demonstration purposes. It is NOT a live CVE database. For production use, integrate with NVD/OSV APIs.",
-    "version": "0.1.0",
-    "last_updated": "2026-09-20"
+    "version": "0.2.0",
+    "last_updated": "2026-10-27"
   },
   "packages": {
     "tensorflow": [
@@ -27,8 +27,15 @@
         "cve": "CVE-2022-45907",
         "affected_versions": "<1.13.1",
         "severity": "CRITICAL",
-        "description": "PyTorch torch.load() with pickle allows arbitrary code execution. Use torch.load(weights_only=True).",
+        "description": "torch.jit.annotations.parse_type_line uses eval() unsafely, allowing arbitrary code execution.",
         "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-45907"
+      },
+      {
+        "cve": "CVE-2025-32434",
+        "affected_versions": "<2.6.0",
+        "severity": "CRITICAL",
+        "description": "torch.load() with weights_only=True can still execute arbitrary code from a crafted checkpoint.",
+        "reference": "https://nvd.nist.gov/vuln/detail/CVE-2025-32434"
       }
     ],
     "pillow": [

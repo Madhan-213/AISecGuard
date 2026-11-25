@@ -7,16 +7,22 @@ GET  /api/v1/artifacts        — list all artifacts
 GET  /api/v1/artifacts/{id}   — get single artifact
 """
 
+import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user
+from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
+from app.models.user import User
 from app.models.provenance import ProvenanceRecord
+from app.models.activity_log import ActivityLog
+from app.models.notification import Notification
 from app.models.enums import ArtifactType, ArtifactStatus
 from app.schemas.artifact import ArtifactResponse, ArtifactListResponse
 from app.utils.hashing import compute_sha256_stream
@@ -61,9 +67,15 @@ def _get_extension_map() -> dict[str, ArtifactType]:
         "The original filename is preserved in metadata only."
     ),
 )
+@limiter.limit("30/minute")
 async def upload_artifact(
+    request: Request,
     file: UploadFile = File(..., description="The artifact file to upload"),
     source_url: str | None = Form(None, description="Optional URL where artifact was obtained"),
+    expected_sha256: str | None = Form(
+        None, description="Optional SHA-256 the file should have (e.g. as published by the model hub)"
+    ),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload an artifact and create its provenance baseline."""
@@ -75,6 +87,14 @@ async def upload_artifact(
         )
 
     original_filename = file.filename
+
+    if expected_sha256:
+        expected_sha256 = expected_sha256.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="expected_sha256 must be 64 hexadecimal characters.",
+            )
     ext = Path(original_filename).suffix.lower()
 
     ext_map = _get_extension_map()
@@ -130,6 +150,7 @@ async def upload_artifact(
         sha256=sha256,
         storage_path=storage_path,
         status=ArtifactStatus.PENDING_SCAN.value,
+        user_id=current_user.id if current_user else None,
     )
     db.add(artifact)
 
@@ -139,10 +160,32 @@ async def upload_artifact(
         artifact_id=artifact.id,
         source_url=source_url,
         sha256_hash=sha256,
+        expected_sha256=expected_sha256 or None,
         file_size=len(content),
-        uploader_id=None,  # Authentication not implemented in Week 3
+        uploader_id=current_user.id if current_user else None,
     )
     db.add(provenance)
+
+    # Activity log and Notification
+    act_log = ActivityLog(
+        user_id=current_user.id if current_user else None,
+        user_email=current_user.email if current_user else "anonymous",
+        action="ARTIFACT_UPLOAD",
+        entity_type="ARTIFACT",
+        entity_id=artifact.id,
+        details=f"Uploaded {original_filename} ({artifact_type.value}, {len(content)} bytes)",
+    )
+    db.add(act_log)
+
+    notif = Notification(
+        user_id=current_user.id if current_user else None,
+        title="Artifact Uploaded",
+        message=f"Artifact '{original_filename}' uploaded successfully and queued for analysis.",
+        severity="INFO",
+        link="/scans",
+    )
+    db.add(notif)
+
     db.commit()
     db.refresh(artifact)
 
@@ -167,14 +210,23 @@ def compute_sha256_bytes_local(data: bytes) -> str:
 def list_artifacts(
     skip: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a paginated list of all uploaded artifacts."""
+    """Return a paginated list of all uploaded artifacts for the authenticated user."""
     from sqlalchemy import select, func
 
-    total = db.execute(select(func.count(Artifact.id))).scalar_one()
+    query = select(Artifact)
+    if current_user:
+        query = query.where(Artifact.user_id == current_user.id)
+
+    count_query = select(func.count(Artifact.id))
+    if current_user:
+        count_query = count_query.where(Artifact.user_id == current_user.id)
+
+    total = db.execute(count_query).scalar_one()
     artifacts = db.execute(
-        select(Artifact).offset(skip).limit(limit).order_by(Artifact.uploaded_at.desc())
+        query.offset(skip).limit(limit).order_by(Artifact.uploaded_at.desc())
     ).scalars().all()
 
     return ArtifactListResponse(total=total, artifacts=list(artifacts))
@@ -201,3 +253,59 @@ def get_artifact(
             detail=f"Artifact not found: {artifact_id}",
         )
     return artifact
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{artifact_id}
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/{artifact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an artifact and its physical file",
+)
+def delete_artifact(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete an artifact, its stored file on disk, and all associated scans.
+    """
+    artifact = db.get(Artifact, artifact_id)
+    if artifact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artifact not found: {artifact_id}",
+        )
+
+    if current_user and artifact.user_id and artifact.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this artifact.",
+        )
+
+    # Delete physical file from disk
+    try:
+        storage_file = Path(artifact.storage_path)
+        if storage_file.is_file():
+            storage_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    art_name = artifact.original_filename
+    art_id = artifact.id
+
+    db.delete(artifact)
+
+    del_log = ActivityLog(
+        user_id=current_user.id if current_user else None,
+        user_email=current_user.email if current_user else "admin",
+        action="ARTIFACT_DELETED",
+        entity_type="ARTIFACT",
+        entity_id=art_id,
+        details=f"Deleted artifact '{art_name}' and purged underlying storage",
+    )
+    db.add(del_log)
+    db.commit()
+    return None

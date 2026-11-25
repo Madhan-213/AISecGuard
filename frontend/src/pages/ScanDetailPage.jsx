@@ -6,6 +6,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { scansApi, artifactsApi } from '../api/client';
+import SupplyChainPanel from '../components/supply/SupplyChainPanel';
+import { useToast } from '../context/ToastContext';
 import {
   ShieldCheck,
   Download,
@@ -16,7 +18,10 @@ import {
   ChevronRight,
   FileCode,
   ArrowLeft,
+  Trash2,
+  X,
 } from 'lucide-react';
+import { deviceCache } from '../utils/deviceCache';
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 
@@ -71,7 +76,7 @@ function FindingAccordionItem({ finding }) {
       borderRadius: 12,
       overflow: 'hidden',
       marginBottom: '0.875rem',
-      background: open ? 'rgba(20, 28, 48, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+      background: open ? 'var(--color-surface)' : 'var(--color-card-subtle-bg)',
       transition: 'all 0.2s ease',
     }}>
       <button
@@ -85,7 +90,7 @@ function FindingAccordionItem({ finding }) {
           background: open ? cfg.bg : 'transparent',
           cursor: 'pointer',
           border: 'none',
-          color: '#ffffff',
+          color: 'var(--color-text)',
           textAlign: 'left',
           gap: '1rem',
         }}
@@ -95,7 +100,7 @@ function FindingAccordionItem({ finding }) {
           <span className={`badge ${cfg.badgeCls}`}>
             {finding.severity}
           </span>
-          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#f1f5f9' }}>
+          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>
             {finding.title}
           </span>
           {finding.rule_id && (
@@ -117,9 +122,9 @@ function FindingAccordionItem({ finding }) {
       </button>
 
       {open && (
-        <div style={{ padding: '1.25rem', borderTop: '1px solid rgba(51, 65, 85, 0.4)' }}>
+        <div style={{ padding: '1.25rem', borderTop: '1px solid var(--color-border)' }}>
           {/* Description */}
-          <p style={{ fontSize: '0.875rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '1rem' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1rem' }}>
             {finding.description}
           </p>
 
@@ -131,8 +136,8 @@ function FindingAccordionItem({ finding }) {
                 <span>Extracted Telemetry & Byte Evidence</span>
               </div>
               <pre style={{
-                background: 'rgba(8, 12, 22, 0.95)',
-                border: '1px solid #1e293b',
+                background: 'var(--color-code-bg)',
+                border: '1px solid var(--color-border)',
                 borderRadius: 8,
                 padding: '0.875rem 1rem',
                 fontSize: '0.78rem',
@@ -157,7 +162,7 @@ function FindingAccordionItem({ finding }) {
               <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
                 ✓ Prescribed Mitigation
               </div>
-              <p style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.45 }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.45 }}>
                 {finding.recommendation}
               </p>
             </div>
@@ -168,11 +173,10 @@ function FindingAccordionItem({ finding }) {
   );
 }
 
-import { deviceCache } from '../utils/deviceCache';
-
 export default function ScanDetailPage() {
   const { scanId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   // Check local device cache memory first
   const cachedScan = deviceCache.getScan(scanId);
   const cachedArtifact = cachedScan ? (cachedScan.artifact || deviceCache.getArtifact(cachedScan.artifact_id)) : null;
@@ -183,6 +187,20 @@ export default function ScanDetailPage() {
   const [error, setError] = useState('');
   const [exportingFormat, setExportingFormat] = useState(null);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await scansApi.delete(scanId, true);
+    } catch (e) {
+      console.warn('Backend delete error:', e);
+    }
+    deviceCache.deleteScan(scanId);
+    toast.success('Scan record and associated files permanently deleted.');
+    navigate('/scans');
+  };
 
   useEffect(() => {
     // If not in cache or updating from backend
@@ -209,10 +227,24 @@ export default function ScanDetailPage() {
       .finally(() => setLoading(false));
   }, [scanId]);
 
+  useEffect(() => {
+    if (!scan?.status || (scan.status !== 'RUNNING' && scan.status !== 'QUEUED')) return;
+    const pollTimer = setInterval(() => {
+      scansApi.get(scanId)
+        .then(res => {
+          setScan(res.data);
+          deviceCache.saveScan(res.data);
+        })
+        .catch(() => {});
+    }, 800);
+    return () => clearInterval(pollTimer);
+  }, [scan?.status, scanId]);
+
   const handleCopyHash = () => {
     if (artifact?.sha256) {
       navigator.clipboard.writeText(artifact.sha256);
       setCopiedHash(true);
+      toast.success('Cryptographic SHA-256 copied to clipboard.');
       setTimeout(() => setCopiedHash(false), 2000);
     }
   };
@@ -229,6 +261,7 @@ export default function ScanDetailPage() {
       a.href = URL.createObjectURL(blob);
       a.download = `aisecguard_report_${scanId.slice(0, 8)}.${format}`;
       a.click();
+      toast.success(`Exported ${format.toUpperCase()} report successfully.`);
     } catch {
       // Fallback export from local device cache memory
       if (format === 'json' && scan) {
@@ -246,8 +279,9 @@ export default function ScanDetailPage() {
         a.href = URL.createObjectURL(jsonBlob);
         a.download = `aisecguard_report_${scanId.slice(0, 8)}.json`;
         a.click();
+        toast.success('Exported JSON report from device cache memory.');
       } else {
-        alert(`Exporting ${format.toUpperCase()} report requires active backend with ReportLab.`);
+        toast.error(`Exporting ${format.toUpperCase()} report requires active backend with ReportLab.`);
       }
     } finally {
       setExportingFormat(null);
@@ -290,7 +324,7 @@ export default function ScanDetailPage() {
           <span>/</span>
           <span style={{ cursor: 'pointer', color: '#38bdf8' }} onClick={() => navigate('/scans')}>Scans</span>
           <span>/</span>
-          <span className="font-mono" style={{ color: '#cbd5e1' }}>{scanId.slice(0, 8)}…</span>
+          <span className="font-mono" style={{ color: 'var(--color-text-muted)' }}>{scanId.slice(0, 8)}…</span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -324,13 +358,37 @@ export default function ScanDetailPage() {
               <span>Quarantine Artifact</span>
             </button>
           )}
+
+          <button
+            id="btn-delete-scan"
+            type="button"
+            className="btn btn-ghost"
+            style={{
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              background: 'rgba(239, 68, 68, 0.08)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+            }}
+            onClick={() => setShowDeleteModal(true)}
+            title="Permanently delete this scan and its stored files"
+          >
+            <Trash2 size={15} />
+            <span>Delete Scan</span>
+          </button>
         </div>
       </div>
 
       {/* Header Info */}
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff' }}>
+          <img
+            src="/logos/logo-shield.png"
+            alt="AISecGuard Shield"
+            style={{ width: 34, height: 34, objectFit: 'contain', flexShrink: 0 }}
+          />
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)' }}>
             Inspection Report
           </h1>
           <span className={`badge badge-${(scan.status || '').toLowerCase()}`}>
@@ -343,7 +401,7 @@ export default function ScanDetailPage() {
       </div>
 
       {/* Top Metrics: Risk Score Gauge + Artifact Metadata */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 2fr', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div className="scan-detail-top-grid">
         {/* Risk Score Circular Gauge */}
         <div className="card" style={{
           display: 'flex',
@@ -397,23 +455,23 @@ export default function ScanDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem 1.5rem', fontSize: '0.85rem' }}>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Original Filename</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{artifact.original_filename}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{artifact.original_filename}</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Artifact Classification</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{artifact.artifact_type}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{artifact.artifact_type}</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>File Payload Size</span>
-                <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{(artifact.file_size / 1024).toFixed(1)} KB</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{(artifact.file_size / 1024).toFixed(1)} KB</span>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Uploaded Timestamp</span>
-                <span style={{ fontWeight: 500, color: '#cbd5e1' }}>{new Date(artifact.uploaded_at).toLocaleString()}</span>
+                <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>{new Date(artifact.uploaded_at).toLocaleString()}</span>
               </div>
 
               {/* SHA-256 with Copy Action */}
-              <div style={{ gridColumn: '1 / -1', background: 'rgba(10, 15, 30, 0.6)', padding: '0.65rem 0.875rem', borderRadius: 8, border: '1px solid #1e293b' }}>
+              <div style={{ gridColumn: '1 / -1', background: 'var(--color-code-bg)', padding: '0.65rem 0.875rem', borderRadius: 8, border: '1px solid var(--color-border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>CRYPTOGRAPHIC SHA-256 HASH</span>
                   <button
@@ -444,11 +502,11 @@ export default function ScanDetailPage() {
           <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '1.25rem', paddingTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Scan Engine Type</span>
-              <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{scan.scan_type}</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{scan.scan_type}</span>
             </div>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Completed At</span>
-              <span style={{ fontWeight: 500, color: '#cbd5e1' }}>
+              <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
                 {scan.completed_at ? new Date(scan.completed_at).toLocaleString() : 'In Progress'}
               </span>
             </div>
@@ -456,11 +514,18 @@ export default function ScanDetailPage() {
         </div>
       </div>
 
+      {/* Supply chain: signature, lineage, compliance, documents */}
+      <SupplyChainPanel
+        artifact={artifact}
+        scan={scan}
+        onChanged={() => artifactsApi.get(scan.artifact_id).then(res => setArtifact(res.data)).catch(() => {})}
+      />
+
       {/* Security Findings Accordion List */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text)' }}>
               Identified Security Findings
             </h2>
             <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.125rem' }}>
@@ -498,6 +563,130 @@ export default function ScanDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ── Delete Confirmation Modal ── */}
+      {showDeleteModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 16, 0.7)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem',
+          }}
+        >
+          <div
+            className="card fade-in"
+            style={{
+              width: '100%',
+              maxWidth: 440,
+              position: 'relative',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 18,
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
+              padding: '1.75rem',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(false)}
+              style={{
+                position: 'absolute',
+                top: '1.25rem',
+                right: '1.25rem',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                padding: 4,
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
+                  Delete Scan &amp; File
+                </h2>
+                <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>Permanently remove this evaluation</div>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              Are you sure you want to permanently delete this scan and its stored artifact file{' '}
+              <strong style={{ color: 'var(--color-text)' }}>
+                {artifact?.original_filename || scan.artifact_name || scanId.slice(0, 8)}
+              </strong>
+              ? This action cannot be undone.
+            </p>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={deleting}
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: 10,
+                  color: '#ffffff',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  opacity: deleting ? 0.7 : 1,
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)',
+                }}
+                onClick={handleDelete}
+              >
+                {deleting ? (
+                  <>
+                    <span className="spinner" style={{ width: 14, height: 14 }} />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

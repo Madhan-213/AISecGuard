@@ -1,70 +1,121 @@
 /**
- * AISecGuard — Authentication Context
- * Week 6: Provides JWT auth state to the entire app.
- * Supports NO_LOGIN_REQUIRED mode (backend standalone mode).
- *
- * - Reads access/refresh tokens from localStorage
- * - Exposes user, login, logout helpers via useAuth() hook
- * - In standalone mode (NO_LOGIN_REQUIRED=true on backend), auto-creates
- *   a guest analyst session so the dashboard is accessible without login
+ * AISecGuard — Authentication & Authorization Context
+ * Real JWT authentication, user session persistence, and isolated workspace management.
  */
 
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { authApi } from '../api/client';
+import { deviceCache } from '../utils/deviceCache';
 
-const AuthContext = createContext(null);
-
-// Guest user shown when backend is in no-login-required mode
-const GUEST_USER = {
-  id: 'guest',
-  email: 'analyst@aisecguard.local',
-  full_name: 'Security Analyst',
-  is_active: true,
-};
+export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
 
-  // On mount: try to restore session from stored token, or use guest mode
+  // Restore authenticated session from localStorage on startup
   useEffect(() => {
     const token = localStorage.getItem('access_token');
+
     if (token) {
       authApi.me()
-        .then(res => setUser(res.data))
+        .then((res) => {
+          setUser(res.data);
+          deviceCache.setCurrentUser(res.data);
+        })
         .catch(() => {
-          // Token expired/invalid — clear and fall through to guest mode
+          // Token is expired or invalid
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
-          setUser(GUEST_USER); // Standalone guest mode
+          setUser(null);
+          deviceCache.setCurrentUser(null);
         })
         .finally(() => setLoading(false));
     } else {
-      // No token — operate as guest analyst (standalone mode)
-      setUser(GUEST_USER);
+      setUser(null);
+      deviceCache.setCurrentUser(null);
       setLoading(false);
     }
   }, []);
 
+  /**
+   * Login with email and password
+   */
   const login = useCallback(async (email, password) => {
-    const res = await authApi.login(email, password);
-    const { access_token, refresh_token } = res.data;
-    localStorage.setItem('access_token', access_token);
-    localStorage.setItem('refresh_token', refresh_token);
-    // Fetch user profile
-    const me = await authApi.me();
-    setUser(me.data);
-    return me.data;
+    setAuthError(null);
+    try {
+      const res = await authApi.login(email, password);
+      const { access_token, refresh_token } = res.data;
+      localStorage.setItem('access_token', access_token);
+      localStorage.setItem('refresh_token', refresh_token);
+
+      // Fetch user profile from backend
+      const meRes = await authApi.me();
+      setUser(meRes.data);
+      deviceCache.setCurrentUser(meRes.data);
+      return meRes.data;
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Authentication failed. Please verify credentials.';
+      setAuthError(msg);
+      throw err;
+    }
   }, []);
 
+  /**
+   * Register a new user account with complete access
+   */
+  const register = useCallback(async (email, password, full_name) => {
+    setAuthError(null);
+    try {
+      // New users get standard analyst role with full complete access
+      const res = await authApi.register(email, password, full_name, 'ANALYST');
+      return res.data;
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Registration failed. Please check your inputs.';
+      setAuthError(msg);
+      throw err;
+    }
+  }, []);
+
+  /**
+   * Sign out and clear stored tokens & user cache
+   */
   const logout = useCallback(() => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    setUser(GUEST_USER); // Revert to guest instead of null
+    deviceCache.setCurrentUser(null);
+    setUser(null);
   }, []);
 
+  const role = user?.role || 'ANALYST';
+  const isAdmin = Boolean(user?.is_admin || user?.role === 'ADMIN');
+  const isAuthenticated = Boolean(user);
+
+  const value = useMemo(() => ({
+    user,
+    loading,
+    authError,
+    isAuthenticated,
+    role,
+    isAdmin,
+    login,
+    register,
+    logout,
+  }), [
+    user,
+    loading,
+    authError,
+    isAuthenticated,
+    role,
+    isAdmin,
+    login,
+    register,
+    logout,
+  ]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
@@ -72,6 +123,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
+  if (!ctx) throw new Error('useAuth must be used inside an AuthProvider');
   return ctx;
 }

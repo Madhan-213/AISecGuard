@@ -1,486 +1,1286 @@
 /**
- * AISecGuard — Security Dashboard Page
- * Week 6: Pulls real aggregate stats from backend /api/v1/stats endpoint,
- * falls back to deviceCache when backend is offline.
+ * AISecGuard — Security Dashboard (Cybersecurity SaaS Redesign)
  *
- * Features:
- * - 4 stat cards: total scans, critical threats, quarantined, avg risk score
- * - Risk-level distribution pie chart (Recharts)
- * - Findings-by-severity bar chart (Recharts)
- * - Recent scans table with risk/status badges and click-through to detail
- * - Quick-action: Upload & Scan Artifact button
- * - Backend health indicator (green when live, amber when cached)
+ * Professional dark navy cybersecurity aesthetic with restrained purple/blue accents,
+ * clean typography, 5 compact stat cards, interactive charts, and live backend data.
+ * Supports both Light and Dark modes seamlessly.
  */
 
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { statsApi } from '../api/client';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import {
-  Activity,
-  AlertOctagon,
-  ShieldAlert,
-  Gauge,
-  UploadCloud,
-  ArrowUpRight,
-  FileText,
-  ShieldCheck,
-  CheckCircle2,
-  WifiOff,
-  Wifi,
+  LayoutDashboard,
+  Boxes,
+  ScanSearch,
+  AlertTriangle,
+  Lock,
+  BadgeCheck,
   RefreshCw,
+  Download,
+  UploadCloud,
+  Activity,
+  PieChart as PieIcon,
+  History,
+  ShieldAlert,
+  BarChart3,
+  ArrowRight,
+  Eye,
+  Trash2,
+  X,
+  FileText,
+  GitBranch,
+  WifiOff,
+  CheckCircle2,
 } from 'lucide-react';
-
+import { API_ORIGIN, apiErrorMessage, exportsApi, statsApi, scansApi } from '../api/client';
 import { deviceCache } from '../utils/deviceCache';
+import { useToast } from '../context/ToastContext';
+import { useTheme } from '../hooks/useTheme';
 
 const RISK_COLORS = {
-  CRITICAL: '#dc2626',
-  HIGH:     '#ea580c',
-  MEDIUM:   '#ca8a04',
-  LOW:      '#10b981',
-  UNKNOWN:  '#64748b',
+  CRITICAL: '#ef4444',
+  HIGH: '#f97316',
+  MEDIUM: '#eab308',
+  LOW: '#10b981',
+  CLEAN: '#10b981',
+  UNKNOWN: '#94a3b8',
 };
 
+const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const SEV_COLORS = {
-  CRITICAL:      '#dc2626',
-  HIGH:          '#ea580c',
-  MEDIUM:        '#ca8a04',
-  LOW:           '#10b981',
+  CRITICAL: '#ef4444',
+  HIGH: '#f97316',
+  MEDIUM: '#eab308',
+  LOW: '#10b981',
   INFORMATIONAL: '#64748b',
 };
 
-// ─── Sub-components ─────────────────────────────────────────────────────────
+const TYPE_LABEL = {
+  MODEL: ['model', 'models'],
+  DATASET: ['dataset', 'datasets'],
+  DEPENDENCY: ['dependency', 'dependencies'],
+};
 
-function StatusBadge({ status }) {
-  const norm = (status || 'pending').toLowerCase();
-  return <span className={`badge badge-${norm}`}>{status}</span>;
+function formatScore(rawScore) {
+  if (rawScore == null) return '0.0';
+  const num = Number(rawScore);
+  return num > 10 ? (num / 10).toFixed(1) : num.toFixed(1);
 }
 
-function RiskBadge({ level }) {
-  const norm = (level || 'info').toLowerCase();
-  return <span className={`badge badge-${norm}`}>{level || 'UNKNOWN'}</span>;
+function formatDateTime(dateStr) {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
-function StatCard({ title, value, sub, color, icon: Icon, glowColor }) {
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function getRiskBadge(riskLevel) {
+  const level = (riskLevel || 'UNKNOWN').toUpperCase();
+  const styles = {
+    CRITICAL: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.16)', border: 'rgba(239, 68, 68, 0.35)', label: 'Critical' },
+    HIGH:     { color: '#f97316', bg: 'rgba(249, 115, 22, 0.16)', border: 'rgba(249, 115, 22, 0.35)', label: 'High' },
+    MEDIUM:   { color: '#eab308', bg: 'rgba(234, 179, 8, 0.16)', border: 'rgba(234, 179, 8, 0.35)', label: 'Medium' },
+    LOW:      { color: '#10b981', bg: 'rgba(16, 185, 129, 0.16)', border: 'rgba(16, 185, 129, 0.35)', label: 'Low' },
+    CLEAN:    { color: '#10b981', bg: 'rgba(16, 185, 129, 0.16)', border: 'rgba(16, 185, 129, 0.35)', label: 'Clean' },
+    UNKNOWN:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', border: 'rgba(148, 163, 184, 0.3)', label: 'Unknown' },
+  };
+  return styles[level] || styles.UNKNOWN;
+}
+
+function getTypeBadge(artifactType) {
+  const type = (artifactType || '').toUpperCase();
+  if (type.includes('MODEL')) {
+    return { label: 'Model', color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)', border: 'rgba(168, 85, 247, 0.3)' };
+  }
+  if (type.includes('DATASET')) {
+    return { label: 'Dataset', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)', border: 'rgba(59, 130, 246, 0.3)' };
+  }
+  if (type.includes('DEP')) {
+    return { label: 'Dependency', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', border: 'rgba(16, 185, 129, 0.3)' };
+  }
+  return { label: artifactType || 'Artifact', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)', border: 'rgba(139, 92, 246, 0.3)' };
+}
+
+/** 5 Compact KPI Stat Cards */
+function Kpi({ icon: Icon, label, value, sub, tone = '#4F7EF7', onClick }) {
   return (
-    <div className="stat-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>
-          {title}
-        </span>
-        <div style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: glowColor || 'rgba(59, 130, 246, 0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: color || '#3b82f6',
-        }}>
-          <Icon size={16} />
+    <button
+      type="button"
+      onClick={onClick}
+      className="dashboard-kpi-card"
+      style={{
+        textAlign: 'left',
+        cursor: onClick ? 'pointer' : 'default',
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '0.75rem',
+        border: '1px solid var(--color-border)',
+        borderRadius: 14,
+        background: 'var(--color-surface-card)',
+        boxShadow: 'var(--card-shadow)',
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+        <div
+          style={{
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'var(--color-text-muted)',
+            marginBottom: '0.35rem',
+          }}
+        >
+          {label}
         </div>
-      </div>
-      <div>
-        <div style={{ fontSize: '2.1rem', fontWeight: 800, color: color || '#ffffff', lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-          {value}
+        <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.1 }}>
+          {value ?? 0}
         </div>
         {sub && (
-          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
+          <div
+            style={{
+              marginTop: '0.3rem',
+              fontSize: '0.74rem',
+              color: 'var(--color-text-muted)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {sub}
           </div>
         )}
       </div>
+      <div
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          background: `${tone}1a`,
+          border: `1px solid ${tone}33`,
+          color: tone,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Icon size={20} />
+      </div>
+    </button>
+  );
+}
+
+/** Dashboard Panel Container */
+function Panel({ icon: Icon, title, sub, action, children, style }) {
+  return (
+    <div
+      style={{
+        padding: '1.4rem 1.5rem',
+        background: 'var(--color-surface-card)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 16,
+        boxShadow: 'var(--card-shadow)',
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '1rem',
+          marginBottom: '1.25rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          {Icon && (
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'rgba(139, 92, 246, 0.12)',
+                border: '1px solid rgba(139, 92, 246, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#8b5cf6',
+                flexShrink: 0,
+              }}
+            >
+              <Icon size={17} />
+            </div>
+          )}
+          <div>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>{title}</h2>
+            {sub && <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0.2rem 0 0' }}>{sub}</p>}
+          </div>
+        </div>
+        {action}
+      </div>
+      {children}
     </div>
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────────────────────
-
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
 
-  // State ──────────────────────────────────────────────────────────────────
   const [stats, setStats] = useState(null);
-  const [recentScans, setRecentScans] = useState([]);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [backendOnline, setBackendOnline] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState(null);
+  const [refreshedAt, setRefreshedAt] = useState(null);
+  const [exporting, setExporting] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
-  // Derived from deviceCache as immediate fallback
-  const [localScans] = useState(() => deviceCache.getScans());
-  const [localFindings] = useState(() => deviceCache.getFindings());
-  const [localArtifacts] = useState(() => deviceCache.getArtifacts());
-
-  // Data fetching ──────────────────────────────────────────────────────────
-  const fetchData = async (showLoader = true) => {
-    if (showLoader) setLoading(true);
-    try {
-      const res = await statsApi.get();
-      const data = res.data;
-      setStats(data);
-      setRecentScans(data.recent_scans || []);
-      setBackendOnline(true);
-      setLastRefreshed(new Date());
-
-      // Sync recent scans into local cache for offline continuity
-      if (data.recent_scans?.length) {
-        data.recent_scans.forEach(s => deviceCache.saveScan(s));
+  const fetchStats = useCallback(() => {
+    return statsApi.get().then(
+      (res) => {
+        setStats(res.data);
+        setError('');
+        setRefreshedAt(new Date());
+        setLoading(false);
+      },
+      (e) => {
+        setError(apiErrorMessage(e, 'The backend did not respond.'));
+        setLoading(false);
       }
-    } catch {
-      // Backend offline — derive stats from local device cache
-      setBackendOnline(false);
-      setStats(null);
-      setRecentScans(localScans.slice(0, 10));
-    } finally {
-      setLoading(false);
+    );
+  }, []);
+
+  const handleDelete = async (scan) => {
+    setDeleting(true);
+    try {
+      await scansApi.delete(scan.id, true);
+    } catch (e) {
+      console.warn('Backend delete error:', e);
     }
+    deviceCache.deleteScan(scan.id);
+    toast.success(`Deleted scan "${scan.artifact_name || scan.id.slice(0, 8)}" and associated files.`);
+    setDeleteModal(null);
+    setDeleting(false);
+    fetchStats();
   };
 
   useEffect(() => {
-    fetchData();
-    // Refresh every 60 seconds automatically
-    const timer = setInterval(() => fetchData(false), 60_000);
+    fetchStats();
+    const timer = setInterval(fetchStats, 30000);
     return () => clearInterval(timer);
-  }, []); // eslint-disable-line
+  }, [fetchStats]);
 
-  // ─── Derived display values ────────────────────────────────────────────
+  const load = () => {
+    setLoading(true);
+    toast.info('Refreshing scan metrics…');
+    fetchStats();
+  };
 
-  // Use backend stats if online, otherwise derive from cache
-  const totalScans    = stats?.total_scans        ?? localScans.length;
-  const criticalCount = stats?.critical_findings   ?? localFindings.filter(f => f.severity === 'CRITICAL').length;
-  const quarantined   = stats?.quarantined_artifacts ?? localArtifacts.filter(a => a.status === 'QUARANTINED').length;
-  const avgRisk       = stats?.avg_risk_score
-    ?? (localScans.length ? Math.round(localScans.reduce((s, sc) => s + (sc.risk_score || 0), 0) / localScans.length) : 0);
+  const exportFindings = async (format) => {
+    setExporting(format);
+    try {
+      await exportsApi.downloadFindings(format);
+      toast.success(`Exported findings as ${format.toUpperCase()}.`);
+    } catch (e) {
+      const msg = apiErrorMessage(e, 'Export failed.');
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setExporting(null);
+    }
+  };
 
-  // Risk distribution pie data
-  const riskDist = stats?.risk_distribution
-    ? Object.entries(stats.risk_distribution).map(([name, value]) => ({ name, value }))
-    : Object.entries(
-        localScans.reduce((acc, sc) => {
-          const rl = sc.risk_level || 'UNKNOWN';
-          acc[rl] = (acc[rl] || 0) + 1;
-          return acc;
-        }, {})
-      ).map(([name, value]) => ({ name, value }));
+  const tooltipStyle = {
+    background: isDark ? 'rgba(15, 23, 42, 0.95)' : '#ffffff',
+    border: '1px solid var(--color-border)',
+    borderRadius: 8,
+    fontSize: 12,
+    color: 'var(--color-text)',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+  };
 
-  // Severity bar data
-  const sevBar = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'].map(sev => ({
-    name: sev.charAt(0) + sev.slice(1).toLowerCase(),
-    count: stats?.severity_distribution?.[sev]
-      ?? localFindings.filter(f => f.severity === sev).length,
-    fill: SEV_COLORS[sev],
-  }));
-
-  const displayScans = recentScans.length > 0 ? recentScans : localScans.slice(0, 8);
-
-  // ─── Loading spinner ───────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '0.875rem' }}>
-        <span className="spinner" style={{ width: 36, height: 36 }} />
-        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Loading security intelligence…</span>
-      </div>
-    );
-  }
-
-  // ─── Main render ──────────────────────────────────────────────────────
-  return (
-    <div className="fade-in" style={{ padding: '2rem 2.5rem', maxWidth: 1300, margin: '0 auto' }}>
-
-      {/* ── Page Title & Quick Actions ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+  /* ── Header ── */
+  const header = (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '1.25rem',
+        marginBottom: '2rem',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Squircle Header Icon */}
+        <div
+          style={{
+            width: 50,
+            height: 50,
+            borderRadius: 14,
+            background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.25) 0%, rgba(99, 102, 241, 0.15) 100%)',
+            border: '1px solid rgba(168, 85, 247, 0.35)',
+            boxShadow: '0 8px 20px -4px rgba(147, 51, 234, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#a855f7',
+            flexShrink: 0,
+          }}
+        >
+          <LayoutDashboard size={24} />
+        </div>
         <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+          <h1
+            style={{
+              fontSize: '1.75rem',
+              fontWeight: 800,
+              color: 'var(--color-text)',
+              margin: 0,
+              lineHeight: 1.2,
+              letterSpacing: '-0.02em',
+            }}
+          >
             Security Dashboard
           </h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Unified view of AI supply chain scans, vulnerability findings, and quarantined assets.
-          </p>
-          {/* Backend status indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
-            {backendOnline ? (
-              <>
-                <Wifi size={13} style={{ color: '#10b981' }} />
-                <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>Live Backend Data</span>
-              </>
-            ) : (
-              <>
-                <WifiOff size={13} style={{ color: '#fbbf24' }} />
-                <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: 600 }}>Offline — Local Cache Mode</span>
-              </>
-            )}
-            {lastRefreshed && (
-              <span style={{ fontSize: '0.68rem', color: '#64748b', marginLeft: '0.5rem' }}>
-                Updated {lastRefreshed.toLocaleTimeString()}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              marginTop: '0.35rem',
+              fontSize: '0.84rem',
+              color: 'var(--color-text-muted)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>Live threat intelligence, artifact integrity, and AI supply chain metrics.</span>
+            {refreshedAt && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} className="pulse-glow" />
+                <span>Refreshed {refreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </span>
             )}
           </div>
         </div>
+      </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-            onClick={() => fetchData(false)}
-            title="Refresh dashboard data"
+      {/* Right side: Action Buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={load}
+          disabled={loading}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <RefreshCw size={14} className={loading ? 'spin' : undefined} />
+          <span>Refresh</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => exportFindings('csv')}
+          disabled={!stats || exporting !== null}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <Download size={14} />
+          <span>{exporting === 'csv' ? 'Exporting…' : 'CSV'}</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => exportFindings('json')}
+          disabled={!stats || exporting !== null}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <Download size={14} />
+          <span>{exporting === 'json' ? 'Exporting…' : 'JSON'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/upload')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            fontSize: '0.84rem',
+            fontWeight: 700,
+            padding: '0.5rem 1.1rem',
+            borderRadius: 10,
+            color: '#ffffff',
+            background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+            border: 'none',
+            cursor: 'pointer',
+            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <UploadCloud size={15} />
+          <span>Upload &amp; Scan</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ── Loading / Error State ── */
+  if (!stats) {
+    return (
+      <div className="fade-in" style={{ padding: '1.75rem 2rem', maxWidth: 1240, margin: '0 auto' }}>
+        {header}
+        {error ? (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '3rem 1.5rem',
+              background: 'var(--color-surface-card)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 16,
+              boxShadow: 'var(--card-shadow)',
+            }}
           >
-            <RefreshCw size={14} />
-            <span>Refresh</span>
-          </button>
-          <button
-            className="btn btn-primary"
-            id="btn-new-scan"
-            style={{ padding: '0.625rem 1.25rem' }}
-            onClick={() => navigate('/upload')}
-          >
-            <UploadCloud size={17} />
-            <span>Upload & Scan Artifact</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── 4 Metric Stat Cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-        <StatCard
-          title="Total Scans Executed"
-          value={totalScans}
-          sub="Across all artifact types"
-          icon={Activity}
-          color="#38bdf8"
-          glowColor="rgba(56, 189, 248, 0.12)"
-        />
-        <StatCard
-          title="Critical Threats"
-          value={criticalCount}
-          sub="Requires immediate isolation"
-          icon={AlertOctagon}
-          color="#f87171"
-          glowColor="rgba(248, 113, 113, 0.15)"
-        />
-        <StatCard
-          title="Quarantined Artifacts"
-          value={quarantined}
-          sub="Isolated in secure containment"
-          icon={ShieldAlert}
-          color="#fb923c"
-          glowColor="rgba(251, 146, 60, 0.15)"
-        />
-        <StatCard
-          title="Average Risk Score"
-          value={avgRisk}
-          sub="Weighted heuristic index (0–50)"
-          icon={Gauge}
-          color={avgRisk > 6 ? '#f87171' : avgRisk > 3 ? '#fbbf24' : '#34d399'}
-          glowColor={avgRisk > 6 ? 'rgba(248,113,113,0.15)' : 'rgba(52,211,153,0.15)'}
-        />
-      </div>
-
-      {/* ── Visual Analytics Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-
-        {/* Risk Distribution Pie Chart */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Risk Level Distribution</h2>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              {backendOnline ? 'Live backend data' : 'Local cache data'}
-            </span>
-          </div>
-
-          {riskDist.length > 0 ? (
-            <div>
-              <ResponsiveContainer width="100%" height={230}>
-                <PieChart>
-                  <Pie
-                    data={riskDist}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {riskDist.map((entry) => (
-                      <Cell key={entry.name} fill={RISK_COLORS[entry.name] || '#64748b'} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#1e293b',
-                      border: '1px solid #334155',
-                      borderRadius: 8,
-                      color: '#f8fafc',
-                      fontSize: '0.8rem',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1rem', marginTop: '0.75rem' }}>
-                {Object.entries(RISK_COLORS).map(([k, c]) => (
-                  <span key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, display: 'inline-block' }} />
-                    <span>{k}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <ShieldCheck size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
-              <span>No scan telemetry available</span>
-              <button className="btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem' }} onClick={() => navigate('/upload')}>
-                Upload First Artifact
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Findings by Severity Bar Chart */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>Findings by Severity Category</h2>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Static inspection rules</span>
-          </div>
-
-          {sevBar.some(b => b.count > 0) ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={sevBar} margin={{ left: -15, right: 10, top: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(51, 65, 85, 0.4)" />
-                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: 8,
-                    color: '#f8fafc',
-                    fontSize: '0.8rem',
-                  }}
-                />
-                <Bar dataKey="count" radius={[5, 5, 0, 0]}>
-                  {sevBar.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div style={{ height: 260, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <CheckCircle2 size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
-              <span>No security anomalies identified</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Recent Scans Table ── */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{
-          padding: '1.25rem 1.5rem',
-          borderBottom: '1px solid var(--color-border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff' }}>Recent Security Scans</h2>
-            <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-              {backendOnline ? 'Live from database' : 'From local device cache'} · Showing latest automated analysis results
+            <WifiOff size={42} style={{ color: '#EF4444', margin: '0 auto 0.75rem' }} />
+            <h2 style={{ color: 'var(--color-text)', fontWeight: 700, fontSize: '1.15rem', margin: '0 0 0.5rem' }}>
+              Backend not reachable
+            </h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', maxWidth: 520, margin: '0 auto 1.25rem' }}>
+              Could not load data from <span className="font-mono">{API_ORIGIN}/api/v1/stats</span>. {error}
             </p>
-          </div>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-            onClick={() => navigate('/scans')}
-          >
-            <span>View All Scans</span>
-            <ArrowUpRight size={14} />
-          </button>
-        </div>
-
-        {displayScans.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Scan Identifier</th>
-                  <th>Artifact Class</th>
-                  <th>Status</th>
-                  <th>Risk Tier</th>
-                  <th>Score</th>
-                  <th>Execution Timestamp</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayScans.slice(0, 8).map(scan => (
-                  <tr
-                    key={scan.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/scans/${scan.id}`)}
-                  >
-                    <td>
-                      <span className="font-mono" style={{ fontSize: '0.825rem', color: '#60a5fa' }}>
-                        {scan.id.slice(0, 8)}…
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#cbd5e1' }}>
-                        {scan.scan_type}
-                      </span>
-                    </td>
-                    <td><StatusBadge status={scan.status} /></td>
-                    <td><RiskBadge level={scan.risk_level} /></td>
-                    <td>
-                      <span style={{
-                        fontWeight: 700,
-                        fontSize: '0.95rem',
-                        color: scan.risk_score > 6 ? '#f87171' : scan.risk_score > 3 ? '#fbbf24' : '#34d399',
-                      }}>
-                        {scan.risk_score}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '0.825rem', color: '#94a3b8' }}>
-                      {scan.completed_at ? new Date(scan.completed_at).toLocaleString() : '—'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/scans/${scan.id}`);
-                        }}
-                      >
-                        Inspect
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', margin: '0 auto' }}
+              onClick={load}
+            >
+              <RefreshCw size={15} />
+              <span>Retry Connection</span>
+            </button>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', color: '#64748b' }}>
-            <FileText size={42} style={{ margin: '0 auto 0.75rem', opacity: 0.3 }} />
-            <p style={{ fontWeight: 600, color: '#94a3b8' }}>No scans registered yet</p>
-            <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Upload an AI/ML model, dataset, or dependency file to inspect for security risks.</p>
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: '1.25rem' }}
-              onClick={() => navigate('/upload')}
-            >
-              Upload First Artifact
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--color-text-muted)', padding: '3rem 0' }}>
+            <span className="spinner" style={{ width: 24, height: 24 }} />
+            <span>Loading security dashboard…</span>
           </div>
         )}
       </div>
+    );
+  }
 
+  /* ── Data Derivations ── */
+  const types = stats.artifacts_by_type || {};
+  const typeLine =
+    Object.entries(types)
+      .map(([t, n]) => `${n} ${(TYPE_LABEL[t] || [t.toLowerCase(), t.toLowerCase()])[n === 1 ? 0 : 1]}`)
+      .join(' · ') || 'none yet';
+
+  const riskData = Object.entries(stats.risk_distribution || {})
+    .filter(([, n]) => n > 0)
+    .map(([level, count]) => ({ level, count }))
+    .sort((a, b) => Object.keys(RISK_COLORS).indexOf(a.level) - Object.keys(RISK_COLORS).indexOf(b.level));
+
+  const totalRiskCount = riskData.reduce((acc, cur) => acc + cur.count, 0);
+
+  const sevData = SEVERITIES.map((s) => ({
+    severity: s === 'INFORMATIONAL' ? 'INFO' : s,
+    key: s,
+    count: stats.severity_distribution?.[s] || 0,
+  }));
+
+  const timeline = (stats.scans_over_time || []).map((d) => ({
+    ...d,
+    label: shortDate(d.date),
+    other: Math.max(0, (d.scans || 0) - (d.high_risk || 0)),
+  }));
+
+  const empty = stats.total_scans === 0;
+
+  return (
+    <div className="fade-in dashboard-page" style={{ padding: '1.75rem 2rem', maxWidth: 1240, margin: '0 auto' }}>
+      {header}
+
+      {error && <div className="alert-error" style={{ marginBottom: '1.25rem' }}>{error}</div>}
+
+      {/* Empty State Banner */}
+      {empty && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            marginBottom: '1.5rem',
+            flexWrap: 'wrap',
+            background: 'var(--color-surface-card)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 14,
+            boxShadow: 'var(--card-shadow)',
+            padding: '1.2rem 1.5rem',
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: 'rgba(139, 92, 246, 0.15)',
+              color: '#8b5cf6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <ScanSearch size={22} />
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ color: 'var(--color-text)', fontWeight: 700, fontSize: '0.98rem' }}>No scans recorded yet</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+              Upload an AI model, dataset or requirements file to scan for vulnerabilities and supply chain threats.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => navigate('/upload')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.84rem' }}
+          >
+            <span>Scan first artifact</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── 5 Compact Statistic Cards ── */}
+      <div className="kpi-grid">
+        {/* 1. Artifacts */}
+        <Kpi
+          icon={Boxes}
+          label="Artifacts"
+          value={stats.total_artifacts}
+          sub={typeLine}
+          tone="#38bdf8"
+          onClick={() => navigate('/scans')}
+        />
+
+        {/* 2. Scans Run */}
+        <Kpi
+          icon={ScanSearch}
+          label="Scans Run"
+          value={stats.total_scans}
+          sub={`Avg score ${stats.avg_risk_score}`}
+          tone="#a855f7"
+          onClick={() => navigate('/scans')}
+        />
+
+        {/* 3. High / Critical */}
+        <Kpi
+          icon={AlertTriangle}
+          label="High / Critical"
+          value={stats.high_risk_scans}
+          sub={`${stats.known_vulnerabilities} CVEs detected`}
+          tone="#f97316"
+          onClick={() => navigate('/scans')}
+        />
+
+        {/* 4. Quarantined */}
+        <Kpi
+          icon={Lock}
+          label="Quarantined"
+          value={stats.quarantined_artifacts}
+          sub="Blocked from use"
+          tone="#ef4444"
+          onClick={() => navigate('/quarantine')}
+        />
+
+        {/* 5. Signed */}
+        <Kpi
+          icon={BadgeCheck}
+          label="Signed"
+          value={stats.signed_artifacts}
+          sub={`${stats.lineage_links} lineage link(s)`}
+          tone="#10b981"
+          onClick={() => navigate('/supply-chain')}
+        />
+      </div>
+
+      {/* ── Two-Column Main Analytics Grid ── */}
+      <div className="dashboard-main-grid">
+        {/* LEFT COLUMN: Scan Activity & Recent Scans */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0, width: '100%' }}>
+          {/* 1. Scan Activity Chart */}
+          <Panel
+            icon={Activity}
+            title="Scan Activity"
+            sub="Scans per day, last 14 days"
+            action={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', fontSize: '0.74rem' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: 'var(--color-text-muted)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6' }} />
+                  Low / Medium
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: 'var(--color-text-muted)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f97316' }} />
+                  High / Critical
+                </span>
+              </div>
+            }
+          >
+            <div style={{ height: 230, width: '100%', minWidth: 0, position: 'relative' }}>
+              {timeline.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeline} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="dashOther" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} />
+                        <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                      </linearGradient>
+                      <linearGradient id="dashHigh" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f97316" stopOpacity={0.45} />
+                        <stop offset="100%" stopColor="#f97316" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="var(--color-border)" vertical={false} strokeDasharray="3 3" opacity={0.6} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Area
+                      type="monotone"
+                      dataKey="other"
+                      name="Low / Medium"
+                      stackId="1"
+                      stroke="#8b5cf6"
+                      strokeWidth={2}
+                      fill="url(#dashOther)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="high_risk"
+                      name="High / Critical"
+                      stackId="1"
+                      stroke="#f97316"
+                      strokeWidth={2}
+                      fill="url(#dashHigh)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                  No activity recorded for this period.
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* 2. Recent Scans Table */}
+          <Panel
+            icon={History}
+            title="Recent Scans"
+            sub="Last 5 security analyses and vulnerability findings"
+            action={
+              <Link
+                to="/scans"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  color: '#8b5cf6',
+                  textDecoration: 'none',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 8,
+                  background: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.08)',
+                }}
+              >
+                <span>View All</span>
+                <ArrowRight size={13} />
+              </Link>
+            }
+          >
+            {stats.recent_scans?.length ? (
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', minWidth: 540 }}>
+                  <thead>
+                    <tr
+                      style={{
+                        borderBottom: '1px solid var(--color-border)',
+                        color: 'var(--color-text-muted)',
+                        fontSize: '0.72rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700 }}>Artifact Name</th>
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700 }}>Type</th>
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700 }}>Risk</th>
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700 }}>Score</th>
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700 }}>Scanned On</th>
+                      <th style={{ padding: '0.65rem 0.75rem', fontWeight: 700, textAlign: 'center' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.recent_scans.slice(0, 5).map((s) => {
+                      const typeBadge = getTypeBadge(s.scan_type);
+                      const riskBadge = getRiskBadge(s.risk_level);
+                      const displayName = s.artifact_name || s.artifact_id?.slice(0, 10) || `scan_${s.id.slice(0, 6)}`;
+                      const scoreDisplay = formatScore(s.risk_score);
+
+                      return (
+                        <tr
+                          key={s.id}
+                          onClick={() => navigate(`/scans/${s.id}`)}
+                          style={{
+                            cursor: 'pointer',
+                            borderBottom: '1px solid var(--color-border)',
+                            transition: 'background-color 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.025)' : 'rgba(0, 0, 0, 0.025)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <td style={{ padding: '0.8rem 0.75rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <FileText size={15} style={{ color: typeBadge.color, flexShrink: 0 }} />
+                              <span
+                                style={{
+                                  fontWeight: 600,
+                                  color: 'var(--color-text)',
+                                  maxWidth: 180,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={displayName}
+                              >
+                                {displayName}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.8rem 0.75rem' }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: 999,
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                color: typeBadge.color,
+                                background: typeBadge.bg,
+                                border: `1px solid ${typeBadge.border}`,
+                              }}
+                            >
+                              {typeBadge.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.8rem 0.75rem' }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: 999,
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                color: riskBadge.color,
+                                background: riskBadge.bg,
+                                border: `1px solid ${riskBadge.border}`,
+                              }}
+                            >
+                              {riskBadge.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.8rem 0.75rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                            <span>{scoreDisplay}</span>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', marginLeft: 3 }}>/ 10</span>
+                          </td>
+                          <td style={{ padding: '0.8rem 0.75rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                            {formatDateTime(s.completed_at || s.started_at)}
+                          </td>
+                          <td style={{ padding: '0.8rem 0.75rem', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/scans/${s.id}`);
+                                }}
+                                title="View Scan Report"
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 8,
+                                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                                  border: '1px solid var(--color-border)',
+                                  color: 'var(--color-text)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = '#8b5cf6';
+                                  e.currentTarget.style.borderColor = '#8b5cf6';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--color-text)';
+                                  e.currentTarget.style.borderColor = 'var(--color-border)';
+                                }}
+                              >
+                                <Eye size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteModal(s);
+                                }}
+                                title="Delete Scanned File & Report"
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 8,
+                                  background: isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)',
+                                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                                  color: '#ef4444',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                                  e.currentTarget.style.borderColor = '#ef4444';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+                                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                                }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--color-text-muted)' }}>
+                <CheckCircle2 size={28} style={{ margin: '0 auto 0.5rem', opacity: 0.5, color: '#10b981' }} />
+                <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>No scans run yet</div>
+                <div style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>
+                  Upload an artifact to begin automated vulnerability analysis.
+                </div>
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        {/* RIGHT COLUMN: Risk Mix & Top Rules */}
+        <div className="dashboard-sidebar-panels">
+          {/* 3. Risk Mix Chart */}
+          <Panel icon={PieIcon} title="Risk Mix" sub="All scans by risk severity level">
+            {riskData.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem' }}>
+                <div style={{ width: 170, height: 170, position: 'relative' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={riskData}
+                        dataKey="count"
+                        nameKey="level"
+                        innerRadius={50}
+                        outerRadius={74}
+                        paddingAngle={3}
+                        stroke="none"
+                      >
+                        {riskData.map((d) => (
+                          <Cell key={d.level} fill={RISK_COLORS[d.level] || '#64748b'} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  {/* Centered Total Count in Donut */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-text)', lineHeight: 1 }}>
+                      {totalRiskCount}
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginTop: 2 }}>
+                      Scans
+                    </span>
+                  </div>
+                </div>
+
+                {/* Severity Breakdown Legend */}
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  {riskData.map((d) => {
+                    const pct = totalRiskCount > 0 ? Math.round((d.count / totalRiskCount) * 100) : 0;
+                    const badge = getRiskBadge(d.level);
+                    return (
+                      <div
+                        key={d.level}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: 8,
+                          background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)',
+                          fontSize: '0.82rem',
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text)' }}>
+                          <span
+                            style={{
+                              width: 9,
+                              height: 9,
+                              borderRadius: '50%',
+                              background: badge.color,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span style={{ fontWeight: 600 }}>{badge.label}</span>
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--color-text)' }}>{d.count}</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', minWidth: 32, textAlign: 'right' }}>
+                            {pct}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                No completed scans yet.
+              </div>
+            )}
+          </Panel>
+
+          {/* 4. Top Rules Section */}
+          <Panel icon={ShieldAlert} title="Top Rules" sub="Top 5 frequently triggered security detections">
+            {stats.top_rules?.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {stats.top_rules.slice(0, 5).map((r) => {
+                  const sevColor = SEV_COLORS[r.severity] || '#64748b';
+                  return (
+                    <div
+                      key={r.rule_id}
+                      style={{
+                        padding: '0.65rem 0.75rem',
+                        borderRadius: 10,
+                        background: isDark ? 'rgba(255, 255, 255, 0.025)' : 'rgba(0, 0, 0, 0.02)',
+                        border: '1px solid var(--color-border)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
+                          <span
+                            style={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: '50%',
+                              background: sevColor,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: 'var(--color-primary)',
+                              background: isDark ? 'rgba(96, 165, 250, 0.1)' : 'rgba(79, 126, 247, 0.1)',
+                              padding: '0.1rem 0.35rem',
+                              borderRadius: 4,
+                            }}
+                          >
+                            {r.rule_id}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '0.76rem',
+                            color: 'var(--color-text-muted)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={r.title}
+                        >
+                          {r.title}
+                        </div>
+                      </div>
+
+                      <div style={{ flexShrink: 0 }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: 999,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: sevColor,
+                            background: `${sevColor}1a`,
+                            border: `1px solid ${sevColor}33`,
+                          }}
+                        >
+                          {r.count} hits
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                Rules appear here once scans detect vulnerabilities.
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
+
+      {/* ── Findings by Severity (Horizontal Bar Chart) ── */}
+      <Panel
+        icon={BarChart3}
+        title="Findings by Severity"
+        sub={`${stats.total_findings || 0} findings detected across active workspace artifacts`}
+        style={{ marginBottom: '1.5rem' }}
+      >
+        <div style={{ height: 210 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={sevData} layout="vertical" margin={{ top: 5, right: 36, left: 4, bottom: 0 }}>
+              <XAxis type="number" allowDecimals={false} hide />
+              <YAxis
+                type="category"
+                dataKey="severity"
+                width={85}
+                tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--color-table-row-hover)' }} />
+              <Bar dataKey="count" radius={[0, 6, 6, 0]} label={{ position: 'right', fill: 'var(--color-text-muted)', fontSize: 11 }}>
+                {sevData.map((d) => (
+                  <Cell key={d.key} fill={SEV_COLORS[d.key] || '#64748b'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+
+      {/* ── Lineage & Scan Methodology Note ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.78rem',
+          color: 'var(--color-text-muted)',
+          padding: '0 0.25rem',
+        }}
+      >
+        <GitBranch size={14} style={{ color: '#8b5cf6', flexShrink: 0 }} />
+        <span>
+          High / critical threats, CVEs, and rule counts evaluate each artifact&apos;s latest scan; re-scans automatically update metrics.
+        </span>
+      </div>
+
+      {/* ── Delete Confirmation Modal ── */}
+      {deleteModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 16, 0.7)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem',
+          }}
+        >
+          <div
+            className="card fade-in"
+            style={{
+              width: '100%',
+              maxWidth: 440,
+              position: 'relative',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 18,
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
+              padding: '1.75rem',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setDeleteModal(null)}
+              style={{
+                position: 'absolute',
+                top: '1.25rem',
+                right: '1.25rem',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                padding: 4,
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
+                  Delete Scanned File
+                </h2>
+                <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>Permanently remove scan record &amp; file</div>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              Are you sure you want to delete{' '}
+              <strong style={{ color: 'var(--color-text)' }}>
+                {deleteModal.artifact_name || deleteModal.filename || deleteModal.id.slice(0, 8)}
+              </strong>
+              ? This action will permanently remove the evaluation findings and delete the stored artifact file from storage.
+            </p>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={deleting}
+                onClick={() => setDeleteModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: 10,
+                  color: '#ffffff',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  opacity: deleting ? 0.7 : 1,
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)',
+                }}
+                onClick={() => handleDelete(deleteModal)}
+              >
+                {deleting ? (
+                  <>
+                    <span className="spinner" style={{ width: 14, height: 14 }} />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

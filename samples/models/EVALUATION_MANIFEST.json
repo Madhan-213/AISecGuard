@@ -1,0 +1,277 @@
+{
+  "description": "Evaluation sample set shared with Person B for scanner verification",
+  "malicious_samples": [
+    {
+      "filename": "malicious_os_system_proto0.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 0,
+      "sha256": "b0ed47da4028d81e191d792495deb5c274648e7f315b0775a1e00f94b9b7c4e3",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_os_system_proto1.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 1,
+      "sha256": "6727485a3c1ed9d065e7c804f6447673d2bee30cac23768395a95cb95cc70abf",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_os_system_proto2.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 2,
+      "sha256": "6efc44623c3c58b18d0f29b4e01a6dd627e572f4da74b403d61b680731542070",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_os_system_proto3.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 3,
+      "sha256": "a5d827434e73b482918543bc0e1e53244a8dd09eed56f745356543bc9735cce3",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_os_system_proto4.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 4,
+      "sha256": "f3118ac30c0058fbe90f0bc5454e4eb59c42d3295885861acef827b23f552d34",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_os_system_proto5.pkl",
+      "module": "os",
+      "callable": "system",
+      "protocol": 5,
+      "sha256": "0186c983c0d6f2355f974b7044d25573a472180baf7741019d8a76a3e0fc476c",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto0.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 0,
+      "sha256": "dabe4fda19ce56ed2ef418485ae4b481ed152982dbe5de7e60382588ffa021aa",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto1.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 1,
+      "sha256": "7a9c18b1728d3e15d8863d538c784726ae6dd3490be2c4fbb8014ab7fad25482",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto2.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 2,
+      "sha256": "5399ca4ea39cb489b3cbce97efb9d910f825f7c20fd06f745a0dfb8e452dad60",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto3.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 3,
+      "sha256": "cea3e9eb7b9d2c62feb158c90bcfd416df9e09697f83a60bbd02aaef3ab1251a",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto4.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 4,
+      "sha256": "f043ac55e8add862559c590f6b8bf46e6e12a4c00fa428b911a640e47110a394",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_builtins_eval_proto5.pkl",
+      "module": "builtins",
+      "callable": "eval",
+      "protocol": 5,
+      "sha256": "6882a66c0856f0525741543d4952c61f425e3c44084d8b41f051b1d4f26451f1",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto0.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 0,
+      "sha256": "1597bf2d5331ad49b9fc79a456101a08b3dbbb1f9cbb106b1a265b7b55fe56ea",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto1.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 1,
+      "sha256": "22367ccd2453bdb61f64333adce26b2f9e46916128510dcaa5ffd11c9799812f",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto2.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 2,
+      "sha256": "cc3c51d7f9b144f6da4364f233cbfd7bef85e3160f92df0c265e04acabe55eec",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto3.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 3,
+      "sha256": "f71f6c28e73ccdb6c76e1432de2008396db72826d42351a69b87ff3a83423c0d",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto4.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 4,
+      "sha256": "4a38ca2bc13883f4152e9f5152a366f3ecd7885a4889ad07286cd510462db3c9",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_subprocess_popen_proto5.pkl",
+      "module": "subprocess",
+      "callable": "Popen",
+      "protocol": 5,
+      "sha256": "863344013e6296483b814d85562e27336b6db6b6c8dace9e5b99f39c8814f1d0",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto0.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 0,
+      "sha256": "5534f1a2193a286e5a9166765aa95c7ad3e70ef3937a0362be2e93909d2867fa",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto1.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 1,
+      "sha256": "5e6f1376dbbe904c461725fb72eb3e7463228ec7d17109e844e561448c0679d3",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto2.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 2,
+      "sha256": "dfac5e001e2c28c1d7ec9e723a56d4926658536fd468e5c8274b54fe8307926b",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto3.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 3,
+      "sha256": "5f5f64ca47368d65e44dd0312290a5b3833000e7e9e85de75b15c502d6e114fb",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto4.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 4,
+      "sha256": "610f2f9a2454a30aed18190f3ffcec1ec43f0a1902fef8e6e569fc1fa6e4720b",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    },
+    {
+      "filename": "malicious_socket_socket_proto5.pkl",
+      "module": "socket",
+      "callable": "socket",
+      "protocol": 5,
+      "sha256": "0191bd76bb075dc00d3710180454c7801f73b49df6b2887d023d7f04a2da84bc",
+      "expected_risk": "CRITICAL",
+      "expected_rule": "MODEL-002"
+    }
+  ],
+  "benign_samples": [
+    {
+      "filename": "benign_sklearn_model_proto2.pkl",
+      "framework": "scikit-learn",
+      "class": "sklearn.linear_model.LinearRegression",
+      "protocol": 2,
+      "sha256": "efab18b7e36b865ded3dc466012ebef35dac0f33cb3d86ace65699dd742f43b0",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    },
+    {
+      "filename": "benign_sklearn_model_proto4.pkl",
+      "framework": "scikit-learn",
+      "class": "sklearn.linear_model.LinearRegression",
+      "protocol": 4,
+      "sha256": "5d21081c9062a2f8417d3408678834714068866b74a39263331dbd916db94bf1",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    },
+    {
+      "filename": "benign_sklearn_model_proto5.pkl",
+      "framework": "scikit-learn",
+      "class": "sklearn.linear_model.LinearRegression",
+      "protocol": 5,
+      "sha256": "942f105106fb7c04c75344c3786db472a203cab607b53ea72e4f8063b2fe3d42",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    },
+    {
+      "filename": "benign_torch_model_proto2.pkl",
+      "framework": "PyTorch",
+      "class": "torch._utils._rebuild_tensor_v2",
+      "protocol": 2,
+      "sha256": "53b5c04f21fcfe3a0e29aaed7ec033ba6060c43c2d3aec5f7c54febe84778e83",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    },
+    {
+      "filename": "benign_torch_model_proto4.pkl",
+      "framework": "PyTorch",
+      "class": "torch._utils._rebuild_tensor_v2",
+      "protocol": 4,
+      "sha256": "f68e909f9af73807d02762801b7c0ba0646684d8ad327250fcb449920d1dde64",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    },
+    {
+      "filename": "benign_torch_model_proto5.pkl",
+      "framework": "PyTorch",
+      "class": "torch._utils._rebuild_tensor_v2",
+      "protocol": 5,
+      "sha256": "328f80d77e7e7cfaf8071a0eef17d910996a7c66d196627f3f1346a165d68923",
+      "expected_risk": "HIGH",
+      "expected_rule_excluded": "MODEL-002"
+    }
+  ]
+}

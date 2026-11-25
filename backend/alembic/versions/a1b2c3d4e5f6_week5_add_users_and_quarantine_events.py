@@ -35,8 +35,8 @@ def upgrade() -> None:
             sa.Column('email', sa.String(255), nullable=False),
             sa.Column('hashed_password', sa.String(255), nullable=False),
             sa.Column('full_name', sa.String(255), nullable=True),
-            sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
-            sa.Column('is_admin', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+            sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column('is_admin', sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         )
         # Unique constraint on email

@@ -67,4 +67,17 @@ class FindingType(str, enum.Enum):
     UNPINNED_DEPENDENCY = "UNPINNED_DEPENDENCY"
     BROAD_VERSION_RANGE = "BROAD_VERSION_RANGE"
     SUSPICIOUS_PACKAGE_NAME = "SUSPICIOUS_PACKAGE_NAME"
+    KNOWN_VULNERABILITY = "KNOWN_VULNERABILITY"
+    # Lineage (Week 8)
+    UPSTREAM_RISK = "UPSTREAM_RISK"
     OTHER = "OTHER"
+
+
+class UserRole(str, enum.Enum):
+    """RBAC roles for AISecGuard platform."""
+    SUPER_ADMIN = "SUPER_ADMIN"
+    ADMIN = "ADMIN"
+    ANALYST = "ANALYST"
+    USER = "USER"
+    AUDITOR = "AUDITOR"
+

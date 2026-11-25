@@ -79,6 +79,9 @@ yarn-error.log*
 frontend/dist/
 frontend/build/
 frontend/.env
+admin-portal/dist/
+admin-portal/build/
+admin-portal/.env
 
 # --- Docker ---
 .docker/
@@ -90,6 +93,11 @@ frontend/.env
 *.crt
 secrets/
 
-# --- Cache / ML artifacts ---
-samples/.mnist_cache/
+# --- Reports & Milestone Documentation ---
+*WEEK*.md
+*week*.md
+DOCS/*week*.md
+DOCS/*WEEK*.md
+DOCS/weekly-reports/
+DOCS/*.pdf
 

@@ -12,11 +12,26 @@ from pydantic import BaseModel, EmailStr, field_validator
 # Request schemas
 # ---------------------------------------------------------------------------
 
+import re
+
+# Simple RFC-compliant email pattern that also permits development domains like .local / .internal / .dev
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 class UserRegisterRequest(BaseModel):
     """Body for POST /api/v1/auth/register"""
-    email: EmailStr
+    email: str
     password: str
     full_name: Optional[str] = None
+    role: Optional[str] = None  # e.g. ADMIN, ANALYST, AUDITOR; defaults to ANALYST
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not EMAIL_PATTERN.match(v):
+            raise ValueError("Invalid email address format.")
+        return v
 
     @field_validator("password")
     @classmethod
@@ -28,8 +43,16 @@ class UserRegisterRequest(BaseModel):
 
 class UserLoginRequest(BaseModel):
     """Body for POST /api/v1/auth/login"""
-    email: EmailStr
+    email: str
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not EMAIL_PATTERN.match(v):
+            raise ValueError("Invalid email address format.")
+        return v
 
 
 class TokenRefreshRequest(BaseModel):
@@ -55,6 +78,7 @@ class UserResponse(BaseModel):
     full_name: Optional[str]
     is_active: bool
     is_admin: bool
+    role: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

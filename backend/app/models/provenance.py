@@ -33,6 +33,8 @@ class ProvenanceRecord(Base):
     )
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Hash the uploader says the file should have (e.g. published by the model hub)
+    expected_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

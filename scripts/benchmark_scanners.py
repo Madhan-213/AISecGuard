@@ -15,9 +15,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / "backend"))
 
-from scanners.dataset_scanner import scan_dataset_file
-from scanners.dependency_scanner import scan_dependency_file
-from scanners.model_scanner import scan_model_file
+from app.scanners.dataset_scanner import scan_dataset_file
+from app.scanners.dependency_scanner import scan_dependency_file
+from app.scanners.model_scanner import scan_model_file
 
 FIXTURES_DIR = Path(__file__).parent.parent / "tests" / "fixtures"
 

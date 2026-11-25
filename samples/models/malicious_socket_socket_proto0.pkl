@@ -1,0 +1,8 @@
+csocket
+socket
+p0
+(Vwhoami
+p1
+tp2
+Rp3
+.

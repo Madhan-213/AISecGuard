@@ -16,6 +16,7 @@ Endpoints:
 import json
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import (
@@ -26,24 +27,29 @@ from fastapi import (
     File,
     Form,
     status,
+    BackgroundTasks,
+    Query,
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
+from app.core.dependencies import get_current_user
+from app.core.limiter import limiter
 from app.core.config import settings
 from app.models.artifact import Artifact
 from app.models.provenance import ProvenanceRecord
 from app.models.scan import Scan
-from app.models.enums import ArtifactStatus, ArtifactType
+from app.models.user import User
+from app.models.enums import ArtifactStatus, ArtifactType, ScanStatus, RiskLevel
 from app.schemas.scan import (
     ScanRequest,
     ScanResponse,
     ScanDetailResponse,
     ScanListResponse,
 )
-from app.services.scan_service import run_scan
+from app.services.scan_service import run_scan, run_scan_in_background, get_scan_progress, set_scan_progress
 from app.utils.hashing import compute_sha256_file
 from app.utils.storage import build_safe_storage_path, save_upload
 
@@ -67,6 +73,9 @@ async def _process_upload_and_scan(
     expected_type: ArtifactType | None,
     source_url: str | None,
     db: Session,
+    background_tasks: BackgroundTasks | None = None,
+    sync: bool | None = None,
+    current_user: User | None = None,
 ) -> Scan:
     """Validate upload, compute SHA-256, store safely, and execute scan."""
     if not file.filename:
@@ -128,6 +137,7 @@ async def _process_upload_and_scan(
         sha256=sha256_hash,
         storage_path=storage_path,
         status=ArtifactStatus.PENDING_SCAN.value,
+        user_id=current_user.id if current_user else None,
     )
     db.add(artifact)
 
@@ -137,11 +147,33 @@ async def _process_upload_and_scan(
         source_url=source_url,
         sha256_hash=sha256_hash,
         file_size=len(content),
-        uploader_id=None,
+        uploader_id=current_user.id if current_user else None,
     )
     db.add(provenance)
     db.commit()
     db.refresh(artifact)
+
+    should_sync = sync if sync is not None else getattr(settings, "SYNC_SCANS", False)
+
+    if not should_sync and background_tasks is not None:
+        scan = Scan(
+            id=str(uuid.uuid4()),
+            artifact_id=artifact.id,
+            scan_type=detected_type.value,
+            status=ScanStatus.RUNNING.value,
+            risk_level=RiskLevel.UNKNOWN.value,
+            risk_score=0,
+            started_at=datetime.now(timezone.utc),
+            user_id=current_user.id if current_user else None,
+        )
+        artifact.status = ArtifactStatus.SCANNING.value
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        set_scan_progress(scan.id, "QUEUED", 15, "Scan job queued for background processing")
+        background_tasks.add_task(run_scan_in_background, scan.id, artifact.id)
+        return scan
 
     try:
         scan = run_scan(artifact_id=artifact.id, db=db)
@@ -167,12 +199,42 @@ async def _process_upload_and_scan(
 )
 def create_scan(
     body: ScanRequest,
+    background_tasks: BackgroundTasks,
+    sync: bool | None = Query(None, description="Force synchronous execution if True"),
     db: Session = Depends(get_db),
 ):
     """
     Start a security scan for the specified artifact by ID.
-    Returns the completed scan with all findings and numeric risk_score.
+    Supports asynchronous execution via FastAPI BackgroundTasks with live progress streaming.
     """
+    artifact = db.get(Artifact, body.artifact_id)
+    if artifact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Artifact not found: {body.artifact_id}",
+        )
+
+    should_sync = sync if sync is not None else getattr(settings, "SYNC_SCANS", False)
+
+    if not should_sync:
+        scan = Scan(
+            id=str(uuid.uuid4()),
+            artifact_id=artifact.id,
+            scan_type=artifact.artifact_type,
+            status=ScanStatus.RUNNING.value,
+            risk_level=RiskLevel.UNKNOWN.value,
+            risk_score=0,
+            started_at=datetime.now(timezone.utc),
+        )
+        artifact.status = ArtifactStatus.SCANNING.value
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        set_scan_progress(scan.id, "QUEUED", 15, "Scan job queued for background processing")
+        background_tasks.add_task(run_scan_in_background, scan.id, artifact.id)
+        return scan
+
     try:
         scan = run_scan(artifact_id=body.artifact_id, db=db)
     except ValueError as exc:
@@ -201,12 +263,15 @@ def create_scan(
     summary="Upload and scan a model artifact directly",
 )
 async def scan_model_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Model file (.pkl, .pt, .onnx, .safetensors, .h5, etc.)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a model artifact, calculate SHA-256, run model scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.MODEL, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -216,12 +281,15 @@ async def scan_model_endpoint(
     summary="Upload and scan a dataset artifact directly",
 )
 async def scan_dataset_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Dataset file (.csv, .json, .parquet, .jsonl)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a dataset artifact, calculate SHA-256, run dataset scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.DATASET, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -231,12 +299,15 @@ async def scan_dataset_endpoint(
     summary="Upload and scan a dependency file directly",
 )
 async def scan_dependency_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Dependency file (requirements.txt, pyproject.toml)"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload a dependency file, calculate SHA-256, run dependency scanner, and return findings."""
-    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db)
+    return await _process_upload_and_scan(file, ArtifactType.DEPENDENCY, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 @router.post(
@@ -246,12 +317,15 @@ async def scan_dependency_endpoint(
     summary="Upload and scan any supported AI/ML artifact directly",
 )
 async def scan_upload_endpoint(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Any supported AI/ML artifact file"),
     source_url: str | None = Form(None),
+    sync: bool | None = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Upload any supported artifact, auto-detect its type, scan it, and return findings."""
-    return await _process_upload_and_scan(file, None, source_url, db)
+    return await _process_upload_and_scan(file, None, source_url, db, background_tasks, sync, current_user=current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +340,20 @@ async def scan_upload_endpoint(
 def list_scans(
     skip: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a paginated list of all scans."""
-    total = db.execute(select(func.count(Scan.id))).scalar_one()
+    """Return a paginated list of scans belonging to the authenticated user."""
+    query = select(Scan)
+    count_query = select(func.count(Scan.id))
+
+    if current_user:
+        query = query.where(Scan.user_id == current_user.id)
+        count_query = count_query.where(Scan.user_id == current_user.id)
+
+    total = db.execute(count_query).scalar_one()
     scans = db.execute(
-        select(Scan).offset(skip).limit(limit).order_by(Scan.started_at.desc())
+        query.offset(skip).limit(limit).order_by(Scan.started_at.desc())
     ).scalars().all()
     return ScanListResponse(total=total, scans=list(scans))
 
@@ -322,18 +404,78 @@ async def scan_status_stream(
             detail=f"Scan not found: {scan_id}",
         )
 
+    initial_status = scan.status
+    initial_risk_level = scan.risk_level
+    initial_risk_score = scan.risk_score
+
     async def event_generator():
-        phases = [
-            {"phase": "QUEUED", "progress": 20, "message": "Scan job queued"},
-            {"phase": "PROVENANCE_CHECK", "progress": 40, "message": "Verifying artifact SHA-256 integrity"},
-            {"phase": "SCANNER_RUNNING", "progress": 70, "message": "Executing static security scanners"},
-            {"phase": "RISK_CALC", "progress": 90, "message": "Evaluating risk score and findings"},
-            {"phase": "COMPLETED", "progress": 100, "message": "Scan completed", "risk_level": scan.risk_level, "risk_score": scan.risk_score},
-        ]
-        for p in phases:
-            data = json.dumps({"scan_id": scan_id, "status": scan.status, **p})
-            yield f"data: {data}\n\n"
-            await asyncio.sleep(0.02)
+        # Fast deterministic stream for synchronous test mode or already-completed scans
+        if getattr(settings, "SYNC_SCANS", False) or initial_status == ScanStatus.COMPLETED.value:
+            delay = 0.01 if getattr(settings, "SYNC_SCANS", False) else 0.25
+            phases = [
+                {"phase": "QUEUED", "progress": 15, "message": "Scan job queued"},
+                {"phase": "PROVENANCE_CHECK", "progress": 35, "message": "Verifying artifact SHA-256 integrity"},
+                {"phase": "SCANNER_RUNNING", "progress": 65, "message": "Executing static security scanners"},
+                {"phase": "RISK_CALC", "progress": 88, "message": "Evaluating risk score and findings"},
+                {
+                    "phase": "COMPLETED",
+                    "progress": 100,
+                    "message": "Scan completed",
+                    "risk_level": initial_risk_level,
+                    "risk_score": initial_risk_score,
+                },
+            ]
+            for p in phases:
+                data = json.dumps({"scan_id": scan_id, "status": initial_status, **p})
+                yield f"data: {data}\n\n"
+                await asyncio.sleep(delay)
+            return
+
+        # Live streaming from real background scan execution
+        last_sent = None
+        for tick in range(300):  # up to 60 seconds
+            prog = get_scan_progress(scan_id)
+            if prog:
+                signature = (prog.get("phase"), prog.get("progress"), prog.get("message"))
+                if signature != last_sent:
+                    last_sent = signature
+                    phase = prog.get("phase", "QUEUED")
+                    ev_status = "COMPLETED" if phase == "COMPLETED" else ("FAILED" if phase == "FAILED" else "RUNNING")
+                    payload = {"scan_id": scan_id, "status": ev_status, **prog}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    if phase in ("COMPLETED", "FAILED"):
+                        return
+
+            # Fallback DB poll every 1s in case in-memory progress missed terminal state
+            if tick % 5 == 4:
+                with SessionLocal() as check_db:
+                    fresh_scan = check_db.get(Scan, scan_id)
+                    if fresh_scan and fresh_scan.status == ScanStatus.COMPLETED.value:
+                        done_payload = {
+                            "scan_id": scan_id,
+                            "status": fresh_scan.status,
+                            "phase": "COMPLETED",
+                            "progress": 100,
+                            "message": "Scan completed",
+                            "risk_level": fresh_scan.risk_level,
+                            "risk_score": fresh_scan.risk_score,
+                        }
+                        yield f"data: {json.dumps(done_payload)}\n\n"
+                        return
+                    if fresh_scan and fresh_scan.status == ScanStatus.FAILED.value:
+                        fail_payload = {
+                            "scan_id": scan_id,
+                            "status": "FAILED",
+                            "phase": "COMPLETED",
+                            "progress": 100,
+                            "message": "Scan failed",
+                            "risk_level": "UNKNOWN",
+                            "risk_score": 0,
+                        }
+                        yield f"data: {json.dumps(fail_payload)}\n\n"
+                        return
+
+            await asyncio.sleep(0.20)
 
     return StreamingResponse(
         event_generator(),
@@ -344,3 +486,61 @@ async def scan_status_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{scan_id}
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/{scan_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a scan and its associated files",
+)
+def delete_scan(
+    scan_id: str,
+    delete_file: bool = Query(True, description="Also remove the physical file and artifact if unused by other scans"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete a scan and its findings.
+    If delete_file is True and the associated artifact is not referenced by any other scans,
+    the artifact record and its stored file on disk are also cleaned up.
+    """
+    scan = db.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scan not found: {scan_id}",
+        )
+
+    if current_user and scan.user_id and scan.user_id != current_user.id and not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this scan.",
+        )
+
+    artifact_id = scan.artifact_id
+    db.delete(scan)
+    db.commit()
+
+    if delete_file and artifact_id:
+        artifact = db.get(Artifact, artifact_id)
+        if artifact:
+            # Check if any other scan still references this artifact
+            remaining = db.execute(
+                select(func.count(Scan.id)).where(Scan.artifact_id == artifact_id)
+            ).scalar_one()
+            if remaining == 0:
+                # Remove physical file from disk
+                try:
+                    storage_file = Path(artifact.storage_path)
+                    if storage_file.is_file():
+                        storage_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                db.delete(artifact)
+                db.commit()
+
+    return None

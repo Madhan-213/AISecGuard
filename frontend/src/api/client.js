@@ -53,8 +53,8 @@ apiClient.interceptors.response.use(
 
 // --- Auth helpers ---
 export const authApi = {
-  register: (email, password, full_name) =>
-    apiClient.post('/api/v1/auth/register', { email, password, full_name }),
+  register: (email, password, full_name, role) =>
+    apiClient.post('/api/v1/auth/register', { email, password, full_name, role }),
   login: (email, password) =>
     apiClient.post('/api/v1/auth/login', { email, password }),
   me: () => apiClient.get('/api/v1/auth/me'),
@@ -73,6 +73,7 @@ export const artifactsApi = {
   release: (id, reason) =>
     apiClient.post(`/api/v1/artifacts/${id}/release`, { reason }),
   events: (id) => apiClient.get(`/api/v1/artifacts/${id}/events`),
+  delete: (id) => apiClient.delete(`/api/v1/artifacts/${id}`),
 };
 
 // --- Scans ---
@@ -80,6 +81,8 @@ export const scansApi = {
   list: (params) => apiClient.get('/api/v1/scans/', { params }),
   get: (id) => apiClient.get(`/api/v1/scans/${id}`),
   create: (artifact_id) => apiClient.post('/api/v1/scans/', { artifact_id }),
+  delete: (id, deleteFile = true) =>
+    apiClient.delete(`/api/v1/scans/${id}`, { params: { delete_file: deleteFile } }),
   scanModel: (formData) =>
     apiClient.post('/api/v1/scans/model', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -106,3 +109,95 @@ export const findingsApi = {
 export const statsApi = {
   get: () => apiClient.get('/api/v1/stats/'),
 };
+
+// --- Supply chain: signing, lineage, ML-BOM, compliance, audit (Week 8) ---
+export const supplyChainApi = {
+  sign: (artifactId) => apiClient.post(`/api/v1/artifacts/${artifactId}/sign`),
+  signature: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/signature`),
+  publicKey: () => apiClient.get('/api/v1/signing/public-key'),
+  keys: () => apiClient.get('/api/v1/signing/keys'),
+  rotateKey: () => apiClient.post('/api/v1/signing/rotate'),
+  lineage: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/lineage`),
+  link: (parent_id, child_id, relation, note) =>
+    apiClient.post('/api/v1/lineage', { parent_id, child_id, relation, note: note || null }),
+  unlink: (edgeId) => apiClient.delete(`/api/v1/lineage/${edgeId}`),
+  compliance: (artifactId) => apiClient.get(`/api/v1/artifacts/${artifactId}/compliance`),
+  mlbom: (artifactId, spec_version = '1.5') =>
+    apiClient.get(`/api/v1/artifacts/${artifactId}/mlbom`, { params: { spec_version } }),
+  modelCard: (artifactId) =>
+    apiClient.get(`/api/v1/artifacts/${artifactId}/model-card`, { responseType: 'text' }),
+  verifyAudit: () => apiClient.get('/api/v1/audit/verify'),
+};
+
+/** Human-readable message from an API error. */
+export function apiErrorMessage(error, fallback = 'Request failed.') {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d) => d.msg).join('; ');
+  return error?.message || fallback;
+}
+
+// --- System info, data export, API keys (Week 9) ---
+export const systemApi = {
+  info: () => apiClient.get('/api/v1/system/info'),
+};
+
+export const exportsApi = {
+  /** Download all findings (latest scan per artifact) as a CSV or JSON file. */
+  downloadFindings: async (format = 'csv', params = {}) => {
+    const res = await apiClient.get('/api/v1/exports/findings', {
+      params: { format, ...params },
+      responseType: format === 'csv' ? 'blob' : 'json',
+    });
+    const blob = format === 'csv' ? res.data : new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `aisecguard-findings-${new Date().toISOString().slice(0, 10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+};
+
+export const apiKeysApi = {
+  list: () => apiClient.get('/api/v1/api-keys'),
+  create: (name) => apiClient.post('/api/v1/api-keys', { name }),
+  revoke: (id) => apiClient.delete(`/api/v1/api-keys/${id}`),
+};
+
+// --- Activity Logs ---
+export const activityLogsApi = {
+  list: (params) => apiClient.get('/api/v1/activity-logs/', { params }),
+  create: (data) => apiClient.post('/api/v1/activity-logs/', data),
+};
+
+// --- Security Policies ---
+export const policiesApi = {
+  list: () => apiClient.get('/api/v1/policies/'),
+  update: (id, data) => apiClient.put(`/api/v1/policies/${id}`, data),
+};
+
+// --- Notifications ---
+export const notificationsApi = {
+  list: () => apiClient.get('/api/v1/notifications/'),
+  markAsRead: (id) => apiClient.patch(`/api/v1/notifications/${id}/read`),
+  markAllAsRead: () => apiClient.post('/api/v1/notifications/read-all'),
+  delete: (id) => apiClient.delete(`/api/v1/notifications/${id}`),
+};
+
+// --- Security Reports ---
+export const reportsApi = {
+  list: (params) => apiClient.get('/api/v1/reports/', { params }),
+  get: (scanId, format = 'json') =>
+    apiClient.get(`/api/v1/scans/${scanId}/report`, {
+      params: { format },
+      responseType: format === 'pdf' ? 'blob' : 'json',
+    }),
+};
+
+// --- Cryptographic Integrity & Provenance ---
+export const integrityApi = {
+  overview: () => apiClient.get('/api/v1/integrity/overview'),
+};
+
+/** Where the browser reaches the API: VITE_API_BASE_URL, or this site's own origin. */
+export const API_ORIGIN = API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
