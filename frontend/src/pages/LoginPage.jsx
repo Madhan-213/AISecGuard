@@ -1,7 +1,7 @@
 /**
- * AISecGuard — Premium Glassmorphism Login Page
+ * AISecGuard — Clean SaaS Login Page
  * Enterprise AI Supply Chain Security authentication.
- * Connected directly to the backend database with isolated user workspaces.
+ * Preserves the animated CyberBackground via AuthLayout with a refined, clean form design.
  */
 
 import { useState, useEffect } from 'react';
@@ -12,15 +12,12 @@ import { useTheme } from '../hooks/useTheme';
 import {
   Mail,
   Lock,
-  Eye,
-  EyeOff,
   AlertCircle,
   CheckCircle2,
   ArrowRight,
-  ShieldCheck,
-  Check,
 } from 'lucide-react';
 import AuthLayout from '../components/auth/AuthLayout';
+import AuthField from '../components/auth/AuthField';
 import ForgotPasswordModal from '../components/auth/ForgotPasswordModal';
 
 export default function LoginPage() {
@@ -43,8 +40,7 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [forgotModalOpen, setForgotModalOpenOpen] = useState(false);
-  const [focusedField, setFocusedField] = useState(null);
+  const [forgotModalOpen, setForgotModalOpen] = useState(false);
 
   const registeredSuccess = location.state?.registered;
   const registeredEmail = location.state?.email;
@@ -81,32 +77,32 @@ export default function LoginPage() {
     <AuthLayout
       theme={theme}
       toggleTheme={toggleTheme}
-      title="Welcome Back"
-      subtitle="Secure your AI supply chain. Sign in to continue."
+      title="Welcome back"
+      subtitle="Sign in to access your security workspace and scan telemetry."
       icon="/logos/logo-icon.png"
     >
-      {/* Success Notification if redirected from registration */}
+      {/* Registration Success Banner */}
       <AnimatePresence>
         {registeredSuccess && (
           <motion.div
             initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-            animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
             exit={{ opacity: 0, height: 0, marginBottom: 0 }}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.65rem',
-              padding: '0.85rem 1rem',
-              borderRadius: 12,
-              background: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.12)',
-              border: isDark ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(16, 185, 129, 0.3)',
+              gap: '0.6rem',
+              padding: '0.75rem 0.9rem',
+              borderRadius: 10,
+              background: isDark ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.08)',
+              border: isDark ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(16, 185, 129, 0.25)',
               color: isDark ? '#34d399' : '#059669',
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               fontWeight: 500,
             }}
           >
-            <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
-            <span>Account created successfully! Please sign in with your credentials.</span>
+            <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+            <span>Account created successfully. Please sign in to continue.</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -116,211 +112,107 @@ export default function LoginPage() {
         {(error || authError) && (
           <motion.div
             initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-            animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
             exit={{ opacity: 0, height: 0, marginBottom: 0 }}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.65rem',
-              padding: '0.85rem 1rem',
-              borderRadius: 12,
-              background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-              border: isDark ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(239, 68, 68, 0.25)',
+              gap: '0.6rem',
+              padding: '0.75rem 0.9rem',
+              borderRadius: 10,
+              background: isDark ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.08)',
+              border: isDark ? '1px solid rgba(239, 68, 68, 0.32)' : '1px solid rgba(239, 68, 68, 0.25)',
               color: isDark ? '#f87171' : '#dc2626',
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               fontWeight: 500,
             }}
           >
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
             <span>{error || authError}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Form */}
+      {/* Clean Login Form */}
       <form onSubmit={handleSubmit} noValidate>
-        {/* Email Field */}
-        <div style={{ marginBottom: '1.25rem' }}>
-          <label
-            htmlFor="email"
-            style={{
-              display: 'block',
-              fontSize: '0.84rem',
-              fontWeight: 600,
-              marginBottom: '0.45rem',
-              color: isDark ? '#e2e8f0' : '#334155',
-            }}
-          >
-            Work Email Address
-          </label>
-          <div style={{ position: 'relative' }}>
-            <Mail
-              size={17}
-              style={{
-                position: 'absolute',
-                left: 14,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: focusedField === 'email'
-                  ? 'var(--color-primary, #3b82f6)'
-                  : isDark ? '#64748b' : '#94a3b8',
-                transition: 'color 0.2s ease',
-                pointerEvents: 'none',
-              }}
-            />
-            <input
-              id="email"
-              type="email"
-              required
-              autoFocus
-              autoComplete="email"
-              placeholder="analyst@organization.com"
-              value={email}
-              onFocus={() => setFocusedField('email')}
-              onBlur={() => setFocusedField(null)}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.78rem 1rem 0.78rem 2.65rem',
-                fontSize: '0.92rem',
-                borderRadius: '12px',
-                background: isDark
-                  ? focusedField === 'email' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)'
-                  : focusedField === 'email' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.7)',
-                border: focusedField === 'email'
-                  ? '1px solid #3b82f6'
-                  : isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)',
-                boxShadow: focusedField === 'email'
-                  ? '0 0 0 3px rgba(59, 130, 246, 0.25)'
-                  : 'none',
-                color: isDark ? '#ffffff' : '#0f172a',
-                outline: 'none',
-                transition: 'all 0.2s ease',
-              }}
-            />
-          </div>
-        </div>
+        <AuthField
+          id="email"
+          name="email"
+          label="Work Email"
+          type="email"
+          icon={Mail}
+          required
+          autoFocus
+          autoComplete="email"
+          placeholder="analyst@organization.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          isDark={isDark}
+        />
 
-        {/* Password Field */}
-        <div style={{ marginBottom: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
-            <label
-              htmlFor="password"
-              style={{
-                fontSize: '0.84rem',
-                fontWeight: 600,
-                color: isDark ? '#e2e8f0' : '#334155',
-              }}
-            >
-              Password
-            </label>
+        <AuthField
+          id="password"
+          name="password"
+          label="Password"
+          type={showPassword ? 'text' : 'password'}
+          icon={Lock}
+          required
+          autoComplete="current-password"
+          placeholder="Enter your password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          isDark={isDark}
+          isPasswordToggle
+          showPassword={showPassword}
+          onTogglePassword={() => setShowPassword((prev) => !prev)}
+          rightLabel={
             <button
               type="button"
-              onClick={() => setForgotModalOpenOpen(true)}
+              onClick={() => setForgotModalOpen(true)}
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: 'var(--color-primary, #3b82f6)',
-                fontSize: '0.8rem',
+                color: isDark ? '#60a5fa' : '#4f7ef7',
+                fontSize: '0.78rem',
                 fontWeight: 600,
                 cursor: 'pointer',
                 padding: 0,
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
             >
               Forgot password?
             </button>
-          </div>
-          <div style={{ position: 'relative' }}>
-            <Lock
-              size={17}
-              style={{
-                position: 'absolute',
-                left: 14,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: focusedField === 'password'
-                  ? 'var(--color-primary, #3b82f6)'
-                  : isDark ? '#64748b' : '#94a3b8',
-                transition: 'color 0.2s ease',
-                pointerEvents: 'none',
-              }}
-            />
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              required
-              autoComplete="current-password"
-              placeholder="••••••••••••"
-              value={password}
-              onFocus={() => setFocusedField('password')}
-              onBlur={() => setFocusedField(null)}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.78rem 2.75rem 0.78rem 2.65rem',
-                fontSize: '0.92rem',
-                borderRadius: '12px',
-                background: isDark
-                  ? focusedField === 'password' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)'
-                  : focusedField === 'password' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.7)',
-                border: focusedField === 'password'
-                  ? '1px solid #3b82f6'
-                  : isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)',
-                boxShadow: focusedField === 'password'
-                  ? '0 0 0 3px rgba(59, 130, 246, 0.25)'
-                  : 'none',
-                color: isDark ? '#ffffff' : '#0f172a',
-                outline: 'none',
-                transition: 'all 0.2s ease',
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((prev) => !prev)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              style={{
-                position: 'absolute',
-                right: 12,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'transparent',
-                border: 'none',
-                color: isDark ? '#94a3b8' : '#64748b',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0.35rem',
-                borderRadius: '6px',
-                transition: 'color 0.15s ease',
-              }}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
+          }
+        />
 
-        {/* Remember Me Option */}
+        {/* Remember Workstation Checkbox */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: '1.75rem',
-            fontSize: '0.84rem',
+            marginTop: '0.25rem',
+            marginBottom: '1.35rem',
+            fontSize: '0.8rem',
             color: isDark ? '#94a3b8' : '#64748b',
           }}
         >
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', cursor: 'pointer', userSelect: 'none' }}>
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
             <input
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
               style={{
-                width: 16,
-                height: 16,
-                accentColor: '#3b82f6',
+                width: 15,
+                height: 15,
+                accentColor: isDark ? '#60a5fa' : '#4f7ef7',
                 cursor: 'pointer',
                 borderRadius: 4,
               }}
@@ -329,38 +221,46 @@ export default function LoginPage() {
           </label>
         </div>
 
-        {/* Primary Submit Button */}
-        <motion.button
+        {/* Clean Primary Submit Button */}
+        <button
           id="btn-login"
           type="submit"
           disabled={loading}
-          whileHover={{ scale: 1.015, translateY: -1 }}
-          whileTap={{ scale: 0.985 }}
           style={{
             width: '100%',
-            padding: '0.85rem 1.25rem',
-            fontSize: '0.95rem',
-            fontWeight: 700,
-            borderRadius: '14px',
+            height: 44,
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            borderRadius: 10,
             border: 'none',
             color: '#ffffff',
-            background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 50%, #7c3aed 100%)',
-            boxShadow: '0 8px 24px -4px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
+            background: isDark
+              ? 'linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%)'
+              : 'linear-gradient(135deg, #4f7ef7 0%, #3b6ee8 100%)',
+            boxShadow: isDark
+              ? '0 4px 14px rgba(59, 130, 246, 0.35)'
+              : '0 4px 12px rgba(79, 126, 247, 0.28)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.6rem',
+            gap: '0.5rem',
             cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.8 : 1,
-            transition: 'box-shadow 0.2s ease',
+            opacity: loading ? 0.78 : 1,
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            if (!loading) e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
           }}
         >
           {loading ? (
             <>
               <span
                 style={{
-                  width: 18,
-                  height: 18,
+                  width: 16,
+                  height: 16,
                   border: '2px solid rgba(255, 255, 255, 0.3)',
                   borderTopColor: '#ffffff',
                   borderRadius: '50%',
@@ -372,44 +272,39 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <span>Sign In to AISecGuard</span>
-              <ArrowRight size={17} />
+              <span>Sign In</span>
+              <ArrowRight size={16} />
             </>
           )}
-        </motion.button>
+        </button>
       </form>
 
-      {/* Navigation Footer Link */}
+      {/* Secondary Navigation Prompt */}
       <div
         style={{
-          marginTop: '1.75rem',
-          paddingTop: '1.5rem',
-          borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)',
+          marginTop: '1.1rem',
           textAlign: 'center',
-          fontSize: '0.86rem',
+          fontSize: '0.82rem',
           color: isDark ? '#94a3b8' : '#64748b',
         }}
       >
-        Don't have an account?{' '}
+        New to AISecGuard?{' '}
         <Link
           to="/register"
           style={{
-            color: 'var(--color-primary, #3b82f6)',
-            fontWeight: 700,
+            color: isDark ? '#60a5fa' : '#4f7ef7',
+            fontWeight: 600,
             textDecoration: 'none',
-            marginLeft: '0.25rem',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
         >
-          Create an account →
+          Create a workspace
         </Link>
       </div>
 
       {/* Forgot Password Modal */}
       <ForgotPasswordModal
         isOpen={forgotModalOpen}
-        onClose={() => setForgotModalOpenOpen(false)}
+        onClose={() => setForgotModalOpen(false)}
         theme={theme}
       />
     </AuthLayout>

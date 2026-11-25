@@ -14,6 +14,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { artifactsApi } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useTheme } from '../hooks/useTheme';
+import PaginationControl from '../components/PaginationControl';
 import {
   Lock,
   Unlock,
@@ -86,6 +87,9 @@ export default function QuarantinePage() {
   const [all, setAll] = useState(() => deviceCache.getArtifacts());
   const [quarantined, setQuarantined] = useState(() => deviceCache.getArtifacts().filter((a) => a.status === 'QUARANTINED'));
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const paginatedQuarantine = quarantined.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const [modal, setModal] = useState(null);
   const [reason, setReason] = useState('');
@@ -497,30 +501,38 @@ export default function QuarantinePage() {
             <span style={{ color: 'var(--color-text-muted)' }}>Checking quarantine inventory…</span>
           </div>
         ) : quarantined.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', minWidth: 650 }}>
-              <thead>
-                <tr
-                  style={{
-                    borderBottom: '1px solid var(--color-border)',
-                    color: 'var(--color-text-muted)',
-                    fontSize: '0.72rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    textAlign: 'left',
-                    background: 'var(--color-table-header-bg)',
-                  }}
-                >
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Artifact Name</th>
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Type</th>
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Threat Level</th>
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Quarantined On</th>
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Findings</th>
-                  <th style={{ padding: '0.75rem 1rem', fontWeight: 700, textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quarantined.map((art) => {
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={quarantined.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="quarantined items"
+            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', minWidth: 650 }}>
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: '1px solid var(--color-border)',
+                      color: 'var(--color-text-muted)',
+                      fontSize: '0.72rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      textAlign: 'left',
+                      background: 'var(--color-table-header-bg)',
+                    }}
+                  >
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Artifact Name</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Type</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Threat Level</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Quarantined On</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>Findings</th>
+                    <th style={{ padding: '0.75rem 1rem', fontWeight: 700, textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedQuarantine.map((art) => {
                   const risk = getRiskBadge(art.risk_level || art.latest_risk_level);
                   const typeBadge = getTypeBadge(art.artifact_type);
                   const scanDate = art.last_scan_at || art.uploaded_at;
@@ -659,6 +671,7 @@ export default function QuarantinePage() {
               </tbody>
             </table>
           </div>
+        </>
         ) : (
           <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
             <CheckCircle2 size={46} style={{ color: '#10b981', margin: '0 auto 0.75rem', display: 'block' }} />

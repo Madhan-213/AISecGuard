@@ -227,6 +227,19 @@ export default function ScanDetailPage() {
       .finally(() => setLoading(false));
   }, [scanId]);
 
+  useEffect(() => {
+    if (!scan?.status || (scan.status !== 'RUNNING' && scan.status !== 'QUEUED')) return;
+    const pollTimer = setInterval(() => {
+      scansApi.get(scanId)
+        .then(res => {
+          setScan(res.data);
+          deviceCache.saveScan(res.data);
+        })
+        .catch(() => {});
+    }, 800);
+    return () => clearInterval(pollTimer);
+  }, [scan?.status, scanId]);
+
   const handleCopyHash = () => {
     if (artifact?.sha256) {
       navigator.clipboard.writeText(artifact.sha256);

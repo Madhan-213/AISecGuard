@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { findingsApi, apiErrorMessage } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import PaginationControl from '../components/PaginationControl';
 
 export default function VulnerabilitiesPage() {
   const navigate = useNavigate();
@@ -32,6 +33,8 @@ export default function VulnerabilitiesPage() {
 
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [expandedId, setExpandedId] = useState(null);
 
   const fetchFindings = async () => {
@@ -66,6 +69,17 @@ export default function VulnerabilitiesPage() {
       return sevMatch && searchMatch;
     });
   }, [findings, severityFilter, searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [severityFilter, searchQuery]);
+
+  // Paginated Findings (10 per page)
+  const paginatedFindings = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredFindings.slice(start, start + PAGE_SIZE);
+  }, [filteredFindings, currentPage, PAGE_SIZE]);
 
   const stats = useMemo(() => {
     let critical = 0;
@@ -240,8 +254,16 @@ export default function VulnerabilitiesPage() {
             <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Your scanned artifacts have passed the selected security heuristic filters.</p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {filteredFindings.map((f) => {
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filteredFindings.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="vulnerabilities"
+            />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {paginatedFindings.map((f) => {
               const isExpanded = expandedId === f.id;
               const sev = (f.severity || 'LOW').toUpperCase();
               return (
@@ -336,7 +358,8 @@ export default function VulnerabilitiesPage() {
               );
             })}
           </div>
-        )}
+        </>
+      )}
       </div>
     </div>
   );

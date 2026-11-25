@@ -127,7 +127,7 @@ export default function UploadPage() {
   const [info, setInfo] = useState(FALLBACK_INFO);
   const [items, setItems] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
-  const [recentScans, setRecentScans] = useState(() => deviceCache.getScans().slice(0, 6));
+  const [recentScans, setRecentScans] = useState(() => deviceCache.getScans().slice(0, 5));
   const [loadingScans, setLoadingScans] = useState(false);
 
   // Provenance & lineage state
@@ -145,15 +145,15 @@ export default function UploadPage() {
 
     setLoadingScans(true);
     scansApi
-      .list({ limit: 6 })
+      .list({ limit: 5 })
       .then((r) => {
         if (r?.data?.scans) {
           r.data.scans.forEach((s) => deviceCache.saveScan(s));
-          setRecentScans(r.data.scans.slice(0, 6));
+          setRecentScans(r.data.scans.slice(0, 5));
         }
       })
       .catch(() => {
-        setRecentScans(deviceCache.getScans().slice(0, 6));
+        setRecentScans(deviceCache.getScans().slice(0, 5));
       })
       .finally(() => setLoadingScans(false));
   }, []);
@@ -1131,11 +1131,14 @@ export default function UploadPage() {
             gap: '1rem',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <History size={19} style={{ color: '#8b5cf6' }} />
             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
               Recent Scans
             </h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+              (Last 5 scans)
+            </span>
           </div>
 
           <Link
@@ -1205,7 +1208,7 @@ export default function UploadPage() {
                   </td>
                 </tr>
               ) : (
-                recentScans.map((scan) => {
+                recentScans.slice(0, 5).map((scan) => {
                   const filename =
                     scan.artifact?.original_filename ||
                     artifacts.find((a) => a.id === scan.artifact_id)?.original_filename ||

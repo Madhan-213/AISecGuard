@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { reportsApi, apiErrorMessage, scansApi } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import PaginationControl from '../components/PaginationControl';
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -31,6 +32,8 @@ export default function ReportsPage() {
 
   const [riskFilter, setRiskFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [downloadingId, setDownloadingId] = useState(null);
 
   const fetchReports = async () => {
@@ -62,6 +65,17 @@ export default function ReportsPage() {
       return riskMatch && searchMatch;
     });
   }, [reports, riskFilter, searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [riskFilter, searchQuery]);
+
+  // Paginated Reports (10 per page)
+  const paginatedReports = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredReports.slice(start, start + PAGE_SIZE);
+  }, [filteredReports, currentPage, PAGE_SIZE]);
 
   const stats = useMemo(() => {
     let critical = 0;
@@ -267,21 +281,29 @@ export default function ReportsPage() {
             <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Complete a scan from Upload & Scan to generate reports.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <th style={{ padding: '0.85rem 1rem' }}>Scanned Artifact</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Type</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Risk Level</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Threat Score</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Findings Breakdown</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Completed On</th>
-                  <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Export Formats</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReports.map((r) => (
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filteredReports.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="reports"
+            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <th style={{ padding: '0.85rem 1rem' }}>Scanned Artifact</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Type</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Risk Level</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Threat Score</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Findings Breakdown</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Completed On</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Export Formats</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedReports.map((r) => (
                   <tr
                     key={r.scan_id}
                     style={{ borderBottom: '1px solid var(--color-border)', transition: 'background-color 0.15s ease' }}
@@ -374,7 +396,8 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
-        )}
+        </>
+      )}
       </div>
     </div>
   );

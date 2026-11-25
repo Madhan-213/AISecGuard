@@ -11,15 +11,19 @@ import io
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db.session import get_db
 from app.models.scan import Scan
 from app.models.finding import Finding
 from app.models.artifact import Artifact
+from app.models.provenance import ProvenanceRecord
+from app.models.signature import ArtifactSignature
+from app.models.quarantine_event import QuarantineEvent
+from app.services.pdf_report_generator import generate_security_scan_pdf, _derive_security_impact
 
 router = APIRouter()
 
@@ -36,8 +40,8 @@ def _normalize_enum_val(val) -> str:
     return s
 
 
-def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
-    """Build the structured JSON report payload."""
+def _build_report_dict(scan: Scan, artifact: Artifact, findings: list, db: Optional[Session] = None) -> dict:
+    """Build the structured JSON report payload enriched with provenance, signatures, and quarantine telemetry."""
     # Compute scan duration
     duration_seconds = None
     if scan.started_at and scan.completed_at:
@@ -46,9 +50,64 @@ def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
     # Severity summary
     by_severity = _count_by_severity(findings)
 
+    # Optional DB telemetry
+    provenance_data = {}
+    signature_data = {"is_signed": False}
+    quarantine_data = {"is_quarantined": False}
+
+    if db is not None:
+        try:
+            prov = db.execute(
+                select(ProvenanceRecord)
+                .where(ProvenanceRecord.artifact_id == artifact.id)
+                .order_by(ProvenanceRecord.uploaded_at.desc())
+            ).scalars().first()
+            if prov:
+                provenance_data = {
+                    "expected_sha256": prov.expected_sha256,
+                    "source_url": prov.source_url,
+                    "uploader_id": prov.uploader_id,
+                }
+        except Exception:
+            pass
+
+        try:
+            sig = db.execute(
+                select(ArtifactSignature)
+                .where(ArtifactSignature.artifact_id == artifact.id)
+                .order_by(ArtifactSignature.signed_at.desc())
+            ).scalars().first()
+            if sig:
+                signature_data = {
+                    "is_signed": True,
+                    "algorithm": sig.algorithm,
+                    "key_id": sig.key_id,
+                    "signed_by": sig.signed_by,
+                    "signed_at": sig.signed_at.isoformat() if sig.signed_at else None,
+                }
+        except Exception:
+            pass
+
+        try:
+            quar = db.execute(
+                select(QuarantineEvent)
+                .where(QuarantineEvent.artifact_id == artifact.id)
+                .order_by(QuarantineEvent.timestamp.desc())
+            ).scalars().first()
+            if quar and quar.action == "QUARANTINE":
+                quarantine_data = {
+                    "is_quarantined": True,
+                    "action": quar.action,
+                    "reason": quar.reason,
+                    "timestamp": quar.timestamp.isoformat() if quar.timestamp else None,
+                    "actor_email": quar.actor_email,
+                }
+        except Exception:
+            pass
+
     return {
         "report_generated_at": datetime.now(timezone.utc).isoformat(),
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "artifact": {
             "id": str(artifact.id),
             "original_filename": artifact.original_filename,
@@ -67,6 +126,9 @@ def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
             "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
             "duration_seconds": round(duration_seconds, 3) if duration_seconds is not None else None,
         },
+        "provenance": provenance_data,
+        "signature": signature_data,
+        "quarantine": quarantine_data,
         "summary": {
             "total_findings": len(findings),
             "by_severity": by_severity,
@@ -81,6 +143,7 @@ def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
             f"2. {_normalize_enum_val(artifact.artifact_type)} Static Security Scanner (format-specific static byte analysis)",
             "3. Lineage Risk Check (upstream dependency & model propagation checks)",
             "4. Risk Assessment Engine (severity-weighted numeric threat score)",
+            "5. Attestation & Quarantine Policy Enforcement (automated vault isolation or Ed25519 signing)",
         ],
         "findings": [
             {
@@ -92,6 +155,8 @@ def _build_report_dict(scan: Scan, artifact: Artifact, findings: list) -> dict:
                 "description": f.description,
                 "evidence": f.evidence,
                 "recommendation": f.recommendation,
+                "impact": _derive_security_impact(f.rule_id or "", _normalize_enum_val(f.severity).upper()),
+                "component": artifact.original_filename,
             }
             for f in findings
         ],
@@ -115,148 +180,12 @@ def _count_by_severity(findings: list) -> dict:
 
 def _generate_pdf(report: dict) -> bytes:
     """
-    Generate a PDF report using reportlab.
-    Falls back gracefully if reportlab is not installed.
+    Generate an enterprise-grade PDF security assessment report.
+    Uses the redesigned ReportLab generator with custom NumberedCanvas.
     """
     try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import cm
-        from reportlab.lib import colors
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-        )
-
-        buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
-                                topMargin=2*cm, bottomMargin=2*cm)
-
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle("Title", parent=styles["Title"],
-                                     fontSize=18, spaceAfter=6, textColor=colors.HexColor("#1e293b"))
-        h2_style = ParagraphStyle("H2", parent=styles["Heading2"],
-                                   fontSize=13, spaceBefore=12, spaceAfter=4,
-                                   textColor=colors.HexColor("#2563eb"))
-        normal = styles["Normal"]
-
-        SEVERITY_HEX = {
-            "CRITICAL": "#dc2626",
-            "HIGH":     "#ea580c",
-            "MEDIUM":   "#ca8a04",
-            "LOW":      "#16a34a",
-            "INFORMATIONAL": "#6b7280",
-        }
-
-        story = []
-
-        # Brand Logo if available
-        try:
-            from pathlib import Path
-            from reportlab.platypus import Image as RLImage
-            logo_p = Path(__file__).resolve().parents[4] / "static" / "logos" / "logo-horizontal.png"
-            if not logo_p.exists():
-                logo_p = Path(__file__).resolve().parents[4] / "static" / "logos" / "logo-icon.png"
-            if logo_p.exists():
-                story.append(RLImage(str(logo_p), width=5.5*cm, height=1.65*cm))
-                story.append(Spacer(1, 0.2*cm))
-        except Exception:
-            pass
-
-        # Title
-        story.append(Paragraph("AISecGuard — Security Scan Report", title_style))
-        story.append(Paragraph(
-            f"Generated: {report['report_generated_at']}", normal))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e2e8f0")))
-        story.append(Spacer(1, 0.3*cm))
-
-        # Artifact info
-        story.append(Paragraph("Artifact", h2_style))
-        art = report["artifact"]
-        art_data = [
-            ["Filename", art["original_filename"]],
-            ["Type", art["artifact_type"]],
-            ["SHA-256", art["sha256"][:32] + "..."],
-            ["Size", f"{art['file_size_bytes']:,} bytes"],
-            ["Uploaded", art["uploaded_at"]],
-        ]
-        t = Table(art_data, colWidths=[4*cm, 13*cm])
-        t.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f8fafc")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 0.4*cm))
-
-        # Scan summary
-        story.append(Paragraph("Scan Summary", h2_style))
-        sc = report["scan"]
-        clean_risk = str(sc["risk_level"]).replace("RiskLevel.", "")
-        risk_hex = SEVERITY_HEX.get(clean_risk.upper(), "#1e293b")
-        risk_para = Paragraph(
-            f'<font color="{risk_hex}"><b>{sc["risk_level"]} (score: {sc["risk_score"]})</b></font>', normal
-        )
-        dur_secs = sc.get("duration_seconds")
-        dur_str = f"{dur_secs:.2f}s" if dur_secs is not None else "N/A"
-        summary_data = [
-            ["Risk Level", risk_para],
-            ["Total Findings", str(report["summary"]["total_findings"])],
-            ["Critical", str(report["summary"]["by_severity"]["CRITICAL"])],
-            ["High", str(report["summary"]["by_severity"]["HIGH"])],
-            ["Medium", str(report["summary"]["by_severity"]["MEDIUM"])],
-            ["Low", str(report["summary"]["by_severity"]["LOW"])],
-            ["Informational", str(report["summary"]["by_severity"]["INFORMATIONAL"])],
-            ["Scan Duration", dur_str],
-            ["Scan Type", str(sc.get("scan_type", "N/A"))],
-        ]
-        t2 = Table(summary_data, colWidths=[4*cm, 13*cm])
-        t2.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
-        ]))
-        story.append(t2)
-        story.append(Spacer(1, 0.4*cm))
-
-        # Scan phases telemetry
-        phases = report.get("scan_phases", [])
-        if phases:
-            story.append(Paragraph("Scan Phase Telemetry", h2_style))
-            for phase in phases:
-                story.append(Paragraph(f"• {phase}", normal))
-            story.append(Spacer(1, 0.4*cm))
-
-        # Findings
-        if report["findings"]:
-            story.append(Paragraph("Findings", h2_style))
-            for idx, finding in enumerate(report["findings"], 1):
-                sev = str(finding["severity"]).upper()
-                clean_sev = sev.replace("RISKLEVEL.", "").replace("FINDINGSEVERITY.", "")
-                sev_hex = SEVERITY_HEX.get(clean_sev, "#1e293b")
-                story.append(Paragraph(
-                    f'{idx}. <b>{finding["title"]}</b> — '
-                    f'<font color="{sev_hex}">[{clean_sev}]</font>',
-                    normal
-                ))
-                if finding.get("rule_id"):
-                    story.append(Paragraph(f'Rule: {finding["rule_id"]}', normal))
-                story.append(Paragraph(finding["description"], normal))
-                if finding.get("evidence"):
-                    story.append(Paragraph(f'Evidence: {finding["evidence"][:300]}', normal))
-                if finding.get("recommendation"):
-                    story.append(Paragraph(
-                        f'<b>Recommendation:</b> {finding["recommendation"]}', normal
-                    ))
-                story.append(Spacer(1, 0.3*cm))
-        else:
-            story.append(Paragraph("No findings detected.", normal))
-
-        doc.build(story)
-        return buf.getvalue()
-
+        from app.services.pdf_report_generator import generate_security_scan_pdf
+        return generate_security_scan_pdf(report)
     except ImportError:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -314,13 +243,13 @@ def download_report(
         select(Finding).where(Finding.scan_id == scan_id).order_by(Finding.severity.desc())
     ).scalars().all()
 
-    report = _build_report_dict(scan, artifact, list(findings))
+    report = _build_report_dict(scan, artifact, list(findings), db=db)
 
     if format and format.lower() == "pdf":
         pdf_bytes = _generate_pdf(report)
         filename = f"aisecguard_report_{scan_id[:8]}.pdf"
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )

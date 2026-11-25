@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PaginationControl from '../components/PaginationControl';
 import {
   Layers,
   Search,
@@ -40,6 +41,8 @@ export default function ArtifactRegistryPage() {
   // Filters & Search
   const [activeTab, setActiveTab] = useState('ALL'); // ALL, MODEL, DATASET, DEPENDENCY, ARCHIVE
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [selectedArtifact, setSelectedArtifact] = useState(null);
   const [artifactScans, setArtifactScans] = useState([]);
   const [loadingScans, setLoadingScans] = useState(false);
@@ -99,7 +102,7 @@ export default function ArtifactRegistryPage() {
       toast.info('Initiating security scan...');
       const res = await scansApi.create(artifactId);
       toast.success('Security scan initiated successfully.');
-      navigate(`/scans/${res.data.id}`);
+      navigate(`/scans/${res.data.id}/progress`);
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Failed to trigger scan.'));
     }
@@ -118,6 +121,17 @@ export default function ArtifactRegistryPage() {
       return typeMatch && searchMatch;
     });
   }, [artifacts, activeTab, searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, searchQuery]);
+
+  // Paginated Artifacts (10 per page)
+  const paginatedArtifacts = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredArtifacts.slice(start, start + PAGE_SIZE);
+  }, [filteredArtifacts, currentPage, PAGE_SIZE]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -335,21 +349,29 @@ export default function ArtifactRegistryPage() {
             <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Upload a model or dataset to populate the inventory.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <th style={{ padding: '0.85rem 1rem' }}>Artifact Name</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Asset Type</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>File Size</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>SHA-256 Digest</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Ingested</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Status</th>
-                  <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredArtifacts.map((art) => (
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filteredArtifacts.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="artifacts"
+            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <th style={{ padding: '0.85rem 1rem' }}>Artifact Name</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Asset Type</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>File Size</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>SHA-256 Digest</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Ingested</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Status</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedArtifacts.map((art) => (
                   <tr
                     key={art.id}
                     style={{ borderBottom: '1px solid var(--color-border)', transition: 'background-color 0.15s ease' }}
@@ -430,7 +452,8 @@ export default function ArtifactRegistryPage() {
               </tbody>
             </table>
           </div>
-        )}
+        </>
+      )}
       </div>
 
       {/* Artifact Details Drawer / Modal */}

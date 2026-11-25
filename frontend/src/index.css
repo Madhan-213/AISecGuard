@@ -1380,17 +1380,102 @@ code, pre, .font-mono {
               background-color 0.2s ease;
 }
 
-/* Desktop sidebar collapsed by user toggle button */
+/* Desktop sidebar collapsed into mini icon-only navigation */
 @media (min-width: 901px) {
   .app-sidebar--desktop-collapsed {
-    width: 0px !important;
-    min-width: 0px !important;
-    max-width: 0px !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-    border-right: none !important;
-    overflow: hidden !important;
+    width: 68px !important;
+    min-width: 68px !important;
+    max-width: 68px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* Micro-animations and hover transitions for all menu buttons */
+.nav-menu-item {
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s ease !important;
+}
+
+.nav-menu-item:hover {
+  transform: translateY(-1px);
+}
+
+.nav-menu-item:active {
+  transform: scale(0.96) translateY(0);
+}
+
+.nav-menu-item:hover .nav-item-icon {
+  transform: scale(1.12);
+}
+
+.nav-menu-item--collapsed {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.nav-menu-item--collapsed:hover {
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.22) !important;
+}
+
+/* Floating Hover Tooltip Popup for Mini Sidebar */
+.sidebar-floating-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 9px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  background: var(--color-surface-card);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(124, 58, 237, 0.25);
+  animation: navTooltipPopup 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 99999;
+  pointer-events: none;
+}
+
+.sidebar-floating-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+@keyframes navTooltipPopup {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-8px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+
+@keyframes dropdownFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

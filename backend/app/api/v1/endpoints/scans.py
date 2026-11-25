@@ -34,7 +34,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
 from app.core.dependencies import get_current_user
 from app.core.limiter import limiter
 from app.core.config import settings
@@ -404,18 +404,78 @@ async def scan_status_stream(
             detail=f"Scan not found: {scan_id}",
         )
 
+    initial_status = scan.status
+    initial_risk_level = scan.risk_level
+    initial_risk_score = scan.risk_score
+
     async def event_generator():
-        phases = [
-            {"phase": "QUEUED", "progress": 20, "message": "Scan job queued"},
-            {"phase": "PROVENANCE_CHECK", "progress": 40, "message": "Verifying artifact SHA-256 integrity"},
-            {"phase": "SCANNER_RUNNING", "progress": 70, "message": "Executing static security scanners"},
-            {"phase": "RISK_CALC", "progress": 90, "message": "Evaluating risk score and findings"},
-            {"phase": "COMPLETED", "progress": 100, "message": "Scan completed", "risk_level": scan.risk_level, "risk_score": scan.risk_score},
-        ]
-        for p in phases:
-            data = json.dumps({"scan_id": scan_id, "status": scan.status, **p})
-            yield f"data: {data}\n\n"
-            await asyncio.sleep(0.02)
+        # Fast deterministic stream for synchronous test mode or already-completed scans
+        if getattr(settings, "SYNC_SCANS", False) or initial_status == ScanStatus.COMPLETED.value:
+            delay = 0.01 if getattr(settings, "SYNC_SCANS", False) else 0.25
+            phases = [
+                {"phase": "QUEUED", "progress": 15, "message": "Scan job queued"},
+                {"phase": "PROVENANCE_CHECK", "progress": 35, "message": "Verifying artifact SHA-256 integrity"},
+                {"phase": "SCANNER_RUNNING", "progress": 65, "message": "Executing static security scanners"},
+                {"phase": "RISK_CALC", "progress": 88, "message": "Evaluating risk score and findings"},
+                {
+                    "phase": "COMPLETED",
+                    "progress": 100,
+                    "message": "Scan completed",
+                    "risk_level": initial_risk_level,
+                    "risk_score": initial_risk_score,
+                },
+            ]
+            for p in phases:
+                data = json.dumps({"scan_id": scan_id, "status": initial_status, **p})
+                yield f"data: {data}\n\n"
+                await asyncio.sleep(delay)
+            return
+
+        # Live streaming from real background scan execution
+        last_sent = None
+        for tick in range(300):  # up to 60 seconds
+            prog = get_scan_progress(scan_id)
+            if prog:
+                signature = (prog.get("phase"), prog.get("progress"), prog.get("message"))
+                if signature != last_sent:
+                    last_sent = signature
+                    phase = prog.get("phase", "QUEUED")
+                    ev_status = "COMPLETED" if phase == "COMPLETED" else ("FAILED" if phase == "FAILED" else "RUNNING")
+                    payload = {"scan_id": scan_id, "status": ev_status, **prog}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    if phase in ("COMPLETED", "FAILED"):
+                        return
+
+            # Fallback DB poll every 1s in case in-memory progress missed terminal state
+            if tick % 5 == 4:
+                with SessionLocal() as check_db:
+                    fresh_scan = check_db.get(Scan, scan_id)
+                    if fresh_scan and fresh_scan.status == ScanStatus.COMPLETED.value:
+                        done_payload = {
+                            "scan_id": scan_id,
+                            "status": fresh_scan.status,
+                            "phase": "COMPLETED",
+                            "progress": 100,
+                            "message": "Scan completed",
+                            "risk_level": fresh_scan.risk_level,
+                            "risk_score": fresh_scan.risk_score,
+                        }
+                        yield f"data: {json.dumps(done_payload)}\n\n"
+                        return
+                    if fresh_scan and fresh_scan.status == ScanStatus.FAILED.value:
+                        fail_payload = {
+                            "scan_id": scan_id,
+                            "status": "FAILED",
+                            "phase": "COMPLETED",
+                            "progress": 100,
+                            "message": "Scan failed",
+                            "risk_level": "UNKNOWN",
+                            "risk_score": 0,
+                        }
+                        yield f"data: {json.dumps(fail_payload)}\n\n"
+                        return
+
+            await asyncio.sleep(0.20)
 
     return StreamingResponse(
         event_generator(),
