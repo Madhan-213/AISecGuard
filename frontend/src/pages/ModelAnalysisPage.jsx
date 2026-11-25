@@ -58,7 +58,7 @@ export default function ModelAnalysisPage() {
     try {
       toast.info('Triggering model AST inspection...');
       const res = await scansApi.create(id);
-      navigate(`/scans/${res.data.id}`);
+      navigate(`/scans/${res.data.id}/progress`);
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Failed to trigger scan.'));
     }

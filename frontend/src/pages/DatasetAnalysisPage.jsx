@@ -57,7 +57,7 @@ export default function DatasetAnalysisPage() {
     try {
       toast.info('Triggering dataset integrity and poisoning scan...');
       const res = await scansApi.create(id);
-      navigate(`/scans/${res.data.id}`);
+      navigate(`/scans/${res.data.id}/progress`);
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Failed to trigger scan.'));
     }

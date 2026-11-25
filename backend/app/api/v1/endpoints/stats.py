@@ -27,7 +27,7 @@ from app.models.signature import ArtifactSignature
 from app.services.queries import latest_scan_ids, plain
 
 TIMELINE_DAYS = 14
-TOP_RULES = 8
+TOP_RULES = 5
 
 router = APIRouter()
 
@@ -102,12 +102,12 @@ def get_stats(
     # ── Critical findings count ──────────────────────────────────────────
     critical_count = severity_distribution.get("CRITICAL", 0)
 
-    # ── Recent 10 scans ──────────────────────────────────────────────────
+    # ── Recent 5 scans ───────────────────────────────────────────────────
     recent_q = select(Scan)
     if user_filter is not None:
         recent_q = recent_q.where(user_filter)
     recent_scans_rows = db.execute(
-        recent_q.order_by(Scan.started_at.desc()).limit(10)
+        recent_q.order_by(Scan.started_at.desc()).limit(5)
     ).scalars().all()
 
     artifact_names = dict(db.execute(

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { scansApi } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useTheme } from '../hooks/useTheme';
@@ -31,7 +31,10 @@ import {
   Shield,
   Layers,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+import PaginationControl from '../components/PaginationControl';
 import { deviceCache } from '../utils/deviceCache';
 
 function formatScore(rawScore) {
@@ -86,6 +89,7 @@ function getTypeBadge(artifactType) {
 
 export default function ScansPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -94,9 +98,16 @@ export default function ScansPage() {
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
   const [filter, setFilter] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || searchParams.get('q') || '');
   const [deleteModal, setDeleteModal] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const q = searchParams.get('search') || searchParams.get('q');
+    if (q !== null && q !== undefined) {
+      setSearchQuery(q);
+    }
+  }, [searchParams]);
 
   const loadScans = async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -148,6 +159,23 @@ export default function ScansPage() {
       return matchesFilter && matchesSearch;
     });
   }, [scans, filter, searchQuery]);
+
+  // Pagination: Strictly 10 scans per page
+  const PAGE_SIZE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Automatically reset to page 1 whenever search query or risk filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedScans = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, safePage]);
 
   // Summary Metrics
   const criticalHighCount = scans.filter((s) => s.risk_level === 'CRITICAL' || s.risk_level === 'HIGH').length;
@@ -593,7 +621,15 @@ export default function ScansPage() {
             <span style={{ color: 'var(--color-text-muted)' }}>Loading scan history…</span>
           </div>
         ) : filtered.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filtered.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="scans"
+            />
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', minWidth: 680 }}>
               <thead>
                 <tr
@@ -619,7 +655,7 @@ export default function ScansPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((scan) => {
+                {paginatedScans.map((scan) => {
                   const typeBadge = getTypeBadge(scan.scan_type);
                   const riskBadge = getRiskBadge(scan.risk_level);
                   const filename =
@@ -805,6 +841,7 @@ export default function ScansPage() {
               </tbody>
             </table>
           </div>
+        </>
         ) : (
           <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
             <FileText size={42} style={{ margin: '0 auto 0.75rem', opacity: 0.35, color: '#8b5cf6' }} />

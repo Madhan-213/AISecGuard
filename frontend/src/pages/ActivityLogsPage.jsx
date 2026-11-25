@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { activityLogsApi, apiErrorMessage } from '../api/client';
+import PaginationControl from '../components/PaginationControl';
 
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState([]);
@@ -26,6 +27,8 @@ export default function ActivityLogsPage() {
 
   const [actionFilter, setActionFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const fetchLogs = async () => {
     try {
@@ -57,6 +60,17 @@ export default function ActivityLogsPage() {
       return actionMatch && searchMatch;
     });
   }, [logs, actionFilter, searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [actionFilter, searchQuery]);
+
+  // Paginated Logs (10 per page)
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredLogs.slice(start, start + PAGE_SIZE);
+  }, [filteredLogs, currentPage, PAGE_SIZE]);
 
   const getActionBadge = (action) => {
     const act = (action || '').toUpperCase();
@@ -170,20 +184,28 @@ export default function ActivityLogsPage() {
             <div style={{ fontWeight: 600 }}>No activity events recorded yet.</div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <th style={{ padding: '0.85rem 1rem' }}>Timestamp</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Initiator</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Action</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Entity</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Operation Details</th>
-                  <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Client IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLogs.map((log) => (
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filteredLogs.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="activity logs"
+            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <th style={{ padding: '0.85rem 1rem' }}>Timestamp</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Initiator</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Action</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Entity</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Operation Details</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Client IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedLogs.map((log) => (
                   <tr
                     key={log.id}
                     style={{ borderBottom: '1px solid var(--color-border)', transition: 'background-color 0.15s ease' }}
@@ -215,7 +237,8 @@ export default function ActivityLogsPage() {
               </tbody>
             </table>
           </div>
-        )}
+        </>
+      )}
       </div>
     </div>
   );

@@ -400,98 +400,60 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Right side: AI Security Shield + Action Buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-        {/* Subtle AISecGuard AI-Security Visual Badge */}
-        <div
-          className="desktop-only"
+      {/* Right side: Action Buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={load}
+          disabled={loading}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <RefreshCw size={14} className={loading ? 'spin' : undefined} />
+          <span>Refresh</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => exportFindings('csv')}
+          disabled={!stats || exporting !== null}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <Download size={14} />
+          <span>{exporting === 'csv' ? 'Exporting…' : 'CSV'}</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => exportFindings('json')}
+          disabled={!stats || exporting !== null}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
+        >
+          <Download size={14} />
+          <span>{exporting === 'json' ? 'Exporting…' : 'JSON'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/upload')}
           style={{
-            position: 'relative',
-            width: 56,
-            height: 56,
-            flexShrink: 0,
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            justifyContent: 'center',
+            gap: '0.45rem',
+            fontSize: '0.84rem',
+            fontWeight: 700,
+            padding: '0.5rem 1.1rem',
+            borderRadius: 10,
+            color: '#ffffff',
+            background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+            border: 'none',
+            cursor: 'pointer',
+            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+            transition: 'all 0.2s ease',
           }}
         >
-          <div
-            style={{
-              position: 'absolute',
-              inset: '-4px',
-              borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(59, 130, 246, 0.15) 50%, transparent 70%)',
-              filter: 'blur(8px)',
-            }}
-          />
-          <img
-            src="/logos/logo-shield.png"
-            alt="AISecGuard AI Security Shield"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              position: 'relative',
-              filter: 'drop-shadow(0 0 10px rgba(147, 51, 234, 0.45))',
-            }}
-          />
-        </div>
-
-        {/* Action buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={load}
-            disabled={loading}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : undefined} />
-            <span>Refresh</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => exportFindings('csv')}
-            disabled={!stats || exporting !== null}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
-          >
-            <Download size={14} />
-            <span>{exporting === 'csv' ? 'Exporting…' : 'CSV'}</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => exportFindings('json')}
-            disabled={!stats || exporting !== null}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.45rem 0.8rem' }}
-          >
-            <Download size={14} />
-            <span>{exporting === 'json' ? 'Exporting…' : 'JSON'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/upload')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.84rem',
-              fontWeight: 700,
-              padding: '0.5rem 1.1rem',
-              borderRadius: 10,
-              color: '#ffffff',
-              background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <UploadCloud size={15} />
-            <span>Upload &amp; Scan</span>
-          </button>
-        </div>
+          <UploadCloud size={15} />
+          <span>Upload &amp; Scan</span>
+        </button>
       </div>
     </div>
   );
@@ -758,7 +720,7 @@ export default function DashboardPage() {
           <Panel
             icon={History}
             title="Recent Scans"
-            sub="Latest security analyses and vulnerability findings"
+            sub="Last 5 security analyses and vulnerability findings"
             action={
               <Link
                 to="/scans"
@@ -803,7 +765,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.recent_scans.map((s) => {
+                    {stats.recent_scans.slice(0, 5).map((s) => {
                       const typeBadge = getTypeBadge(s.scan_type);
                       const riskBadge = getRiskBadge(s.risk_level);
                       const displayName = s.artifact_name || s.artifact_id?.slice(0, 10) || `scan_${s.id.slice(0, 6)}`;
@@ -1062,10 +1024,10 @@ export default function DashboardPage() {
           </Panel>
 
           {/* 4. Top Rules Section */}
-          <Panel icon={ShieldAlert} title="Top Rules" sub="Frequently triggered security detections">
+          <Panel icon={ShieldAlert} title="Top Rules" sub="Top 5 frequently triggered security detections">
             {stats.top_rules?.length ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {stats.top_rules.map((r) => {
+                {stats.top_rules.slice(0, 5).map((r) => {
                   const sevColor = SEV_COLORS[r.severity] || '#64748b';
                   return (
                     <div

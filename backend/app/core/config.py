@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     OSV_LOOKUP_ENABLED: bool = True
     OSV_TIMEOUT_SECONDS: float = 5.0
     SYNC_SCANS: bool = False
+    SCAN_MIN_DURATION_SECONDS: float = 5.0
 
     # Allowed file extensions
     ALLOWED_MODEL_EXTENSIONS: List[str] = [

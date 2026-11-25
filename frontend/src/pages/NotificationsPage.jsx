@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { notificationsApi, apiErrorMessage } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import PaginationControl from '../components/PaginationControl';
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
@@ -27,6 +28,12 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('ALL'); // ALL, UNREAD
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
 
   const fetchNotifications = async () => {
     try {
@@ -80,6 +87,11 @@ export default function NotificationsPage() {
     if (filter === 'UNREAD') return !n.is_read;
     return true;
   });
+
+  const paginatedNotifications = filtered.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
   const getSeverityIcon = (sev) => {
     const s = (sev || '').toUpperCase();
@@ -172,8 +184,16 @@ export default function NotificationsPage() {
             <p style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>All clear! You are caught up with all security alerts.</p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {filtered.map((item) => (
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={filtered.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="notifications"
+            />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {paginatedNotifications.map((item) => (
               <div
                 key={item.id}
                 style={{
@@ -246,7 +266,8 @@ export default function NotificationsPage() {
               </div>
             ))}
           </div>
-        )}
+        </>
+      )}
       </div>
     </div>
   );

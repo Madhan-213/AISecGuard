@@ -81,12 +81,15 @@ export default function ScanProgressPage() {
   const [aborted, setAborted] = useState(false);
   const [error, setError] = useState(null);
   const [log, setLog] = useState([]);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const esRef = useRef(null);
+  const abortedRef = useRef(false);
 
   const addLog = (msg) =>
     setLog((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString(), msg }]);
 
   const handleAbortScan = () => {
+    abortedRef.current = true;
     if (esRef.current) {
       esRef.current.close();
     }
@@ -96,7 +99,16 @@ export default function ScanProgressPage() {
   };
 
   useEffect(() => {
-    if (!scanId) return;
+    if (done || aborted) return;
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setElapsedMs(Date.now() - startTime);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [done, aborted]);
+
+  useEffect(() => {
+    if (!scanId || abortedRef.current) return;
 
     const url = `${API_ORIGIN}/api/v1/scans/${scanId}/status`;
     addLog(`Connecting to scan engine for ${scanId.slice(0, 8)}…`);
@@ -105,11 +117,11 @@ export default function ScanProgressPage() {
     esRef.current = es;
 
     es.onopen = () => {
-      addLog('SSE connection established');
+      addLog('SSE connection established — zero-execution analyzer active');
     };
 
     es.onmessage = (event) => {
-      if (aborted) return;
+      if (abortedRef.current) return;
       try {
         const data = JSON.parse(event.data);
         const phase = data.phase || 'QUEUED';
@@ -124,9 +136,9 @@ export default function ScanProgressPage() {
         if (phase === 'COMPLETED') {
           setDone(true);
           es.close();
-          addLog('Scan complete — redirecting to report…');
+          addLog('Scan complete — redirecting to detailed findings report…');
           toast.success('Security scan completed successfully!');
-          setTimeout(() => navigate(`/scans/${scanId}`), 2000);
+          setTimeout(() => navigate(`/scans/${scanId}`), 850);
         }
       } catch {
         // ignore malformed events
@@ -134,15 +146,15 @@ export default function ScanProgressPage() {
     };
 
     es.onerror = () => {
-      if (aborted) return;
+      if (abortedRef.current) return;
       es.close();
       addLog('Connection interrupted — checking scan status…');
       setError('Stream ended. Navigating to scan report…');
-      setTimeout(() => navigate(`/scans/${scanId}`), 2500);
+      setTimeout(() => navigate(`/scans/${scanId}`), 1500);
     };
 
     return () => { es.close(); };
-  }, [scanId, navigate, aborted, toast]);
+  }, [scanId, navigate, toast]);
 
   const currentIdx = PHASE_INDEX[currentPhase] ?? 0;
   const riskColor = RISK_COLORS[riskLevel] || '#64748b';
@@ -185,7 +197,13 @@ export default function ScanProgressPage() {
         </p>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress telemetry stats + bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+        <span>{done ? 'Analysis Complete' : aborted ? 'Scan Aborted' : (message || 'Executing security pipeline…')}</span>
+        <span className="font-mono">
+          {progress}% · {(elapsedMs / 1000).toFixed(1)}s
+        </span>
+      </div>
       <div style={{
         background: 'var(--color-surface)', borderRadius: 8, height: 8,
         marginBottom: aborted ? '1.5rem' : '1.5rem', overflow: 'hidden', border: '1px solid var(--color-border)',

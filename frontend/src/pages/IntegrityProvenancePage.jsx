@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { integrityApi, supplyChainApi, apiErrorMessage } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import PaginationControl from '../components/PaginationControl';
 
 export default function IntegrityProvenancePage() {
   const navigate = useNavigate();
@@ -30,6 +31,13 @@ export default function IntegrityProvenancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [signingId, setSigningId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  const paginatedItems = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return items.slice(start, start + PAGE_SIZE);
+  }, [items, currentPage, PAGE_SIZE]);
 
   const fetchIntegrity = async () => {
     try {
@@ -193,21 +201,29 @@ export default function IntegrityProvenancePage() {
             <div style={{ fontWeight: 600 }}>No artifacts in registry to verify.</div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <th style={{ padding: '0.85rem 1rem' }}>Artifact</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Asset Type</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>SHA-256 Digest</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Disk Storage Match</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Ed25519 Signature</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Integrity Status</th>
-                  <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
+          <>
+            <PaginationControl
+              currentPage={currentPage}
+              totalItems={items.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+              itemLabel="integrity records"
+            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-table-header-bg)', color: 'var(--color-text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <th style={{ padding: '0.85rem 1rem' }}>Artifact</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Asset Type</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>SHA-256 Digest</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Disk Storage Match</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Ed25519 Signature</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Integrity Status</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedItems.map((item) => (
                   <tr
                     key={item.artifact_id}
                     style={{ borderBottom: '1px solid var(--color-border)', transition: 'background-color 0.15s ease' }}
@@ -300,7 +316,8 @@ export default function IntegrityProvenancePage() {
               </tbody>
             </table>
           </div>
-        )}
+        </>
+      )}
       </div>
     </div>
   );
